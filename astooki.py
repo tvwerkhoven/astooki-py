@@ -94,6 +94,28 @@ Shifts options
      --safile=FILEPATH       subaperture locations, same format as maskfile
      --sffile=FILEPATH       subfield locations w.r.t. subaperture locations
  -n, --nref=INT              number of references to use [4]
+
+Examples
+ To calculate stats for a series of files in one directory, using dark- and
+ flatfielding and cropping using a pre-calculated mask:
+   astooki.py stats -vvv --ff *ff*1001 --fm=500 --df ../2009.04.22/*dd*1995 \
+   --dm=500 --mf=proc/2009.04.22-mask-crop3.csv --file=proc/2009.04.27-stats \  
+   wfwfs_test_im27Apr2009.0000???
+
+ To convert one file to fits format while dark/flat-fielding and using a 
+ cropmask without normalizing:
+   astooki.py convert -vvv --ff *ff*1001 --fm=500 --df \
+   ../2009.04.22/*dd*1995 --dm=500 --mf=proc/2009.04.22-mask-crop3.csv \
+   --nonorm wfwfs_test_im27Apr2009.0000042
+
+ To measure image shifts over the whole subaperture, use a subfield file with 
+ only one subfield with the size of the complete subimage except for a guard 
+ range, combined with a regular subimage config file:
+   astooki.py shifts -vvv --ff *ff*1001 --fm=500 --df \
+   ../2009.04.22/*dd*1995 --dm=500 --safile proc/2009.04.22-mask.csv \
+   --sffile proc/2009.04.22-subfield-big.csv --range 7 --nref 5 \
+   wfwfs_test_im27Apr2009.00000??
+
 ''' % (VERSION, DATE, AUTHOR)
 
 ### Supported formats
@@ -200,8 +222,8 @@ def parse_options():
 		for option, value in opts:
 			log.prNot(log.DEBUG, 'Parsing shift: %s:%s' % (option, value))
 			if option in ["-r", "--range"]: params['shrange'] = float(value)
-			if option in ["--safile"]: params['safile'] = value
-			if option in ["--sffile"]: params['sffile'] = value
+			if option in ["--safile"]: params['safile'] = os.path.realpath(value)
+			if option in ["--sffile"]: params['sffile'] = os.path.realpath(value)
 			if option in ["-n", "--nref"]: params['nref'] = int(value)
 	
 	return (tool, params, files)
@@ -213,11 +235,11 @@ def get_defaults(tool):
 	"""
 	default = {}
 	# Common defaults
-	default['flatfield'] = 'none'
+	default['flatfield'] = False
 	default['flatmulti'] = 1
-	default['darkfield'] = 'none'
+	default['darkfield'] = False
 	default['darkmulti'] = 1
-	default['maskfile'] = 'none'
+	default['maskfile'] = False
 	default['norm'] = True
 	default['stats'] = False
 	default['informat'] = _FORMAT_ANA
@@ -239,8 +261,8 @@ def get_defaults(tool):
 	default['saifac'] = 0.7
 	# Shift defaults
 	default['shrange'] = 7
-	default['safile'] = 'none'
-	default['sffile'] = 'none'
+	default['safile'] = False
+	default['sffile'] = False
 	default['nref'] = 4
 	
 	# Internal configuration, cannot be changed command-line
@@ -286,17 +308,17 @@ def check_params(tool, params):
 			params['crop'] = N.array(params['crop'][0:4]).astype(N.float)
 		except: log.prNot(log.ERROR, "crop invalid, should be 4 floats.")
 	# Flatfield must exist
-	if (params['flatfield'] is not 'none') and \
+	if (params['flatfield']) and \
 		(not os.path.exists(params['flatfield'])):
 		log.prNot(log.ERROR, "flatfield '%s' does not exist." % \
 		 	(params['flatfield']))
 	# Darkfield must exist
-	if (params['darkfield'] is not 'none') and \
+	if (params['darkfield']) and \
 		(not os.path.exists(params['darkfield'])):
 		log.prNot(log.ERROR, "darkfield '%s' does not exist." % \
 		 	(params['darkfield']))
 	# Makfile needs to exist
-	if (params['maskfile'] is not 'none') and \
+	if (params['maskfile']) and \
 		(not os.path.exists(params['maskfile'])):
 		log.prNot(log.ERROR, "maskfile '%s' does not exist." % \
 		 	(params['maskfile']))
@@ -335,13 +357,13 @@ def check_params(tool, params):
 			log.prNot(log.ERROR, "Tool 'saopt' requires maskfile.")
 	elif (tool == 'shifts'):
 		# need safile and sffile
-		params['safile'] = os.path.realpath(params['safile'])
-		if (not os.path.exists(params['safile'])):
-			log.prNot(log.ERROR, "Tool 'shifts' requires safile (%s)." % \
+		if (params['safile']) and \
+			(not os.path.exists(params['safile'])):
+			log.prNot(log.ERROR, "safile '%s' does not exist." % \
 			 	(params['safile']))
-		params['sffile'] = os.path.realpath(params['sffile'])
-		if (not os.path.exists(params['sffile'])):
-			log.prNot(log.ERROR, "Tool 'shifts' requires sffile (%s)." % \
+		if (params['sffile']) and \
+			(not os.path.exists(params['sffile'])):
+			log.prNot(log.ERROR, "sffile '%s' does not exist." % \
 			 	(params['sffile']))
 	
 	# Done
@@ -372,7 +394,7 @@ class Tool(object):
 		self.crop = params['crop']
 		self.plot = params['plot']
 		self.file = params['file']
-		if (self.maskfile is not 'none'):
+		if (self.maskfile):
 			log.prNot(log.DEBUG, "Loading mask files.")
 			(self.nsa, self.saccdpos, self.saccdsize) = \
 			 	libsh.loadSaSfConf(self.maskfile)
@@ -421,7 +443,7 @@ class Tool(object):
 	def __initdarkflat(self):
 		# Get flats and darks, if not already present
 		if (self.flatdata is None):
-			if (self.flatfield is not 'none'):
+			if (self.flatfield):
 				log.prNot(log.DEBUG, "Loading flatfield...")
 				self.flatdata = self.load(self.flatfield)
 				self.flatdata = self.flatdata.astype(N.float)
@@ -432,7 +454,7 @@ class Tool(object):
 				log.prNot(log.DEBUG, "Not flatfielding, setting to 1.0")
 				self.gaindata = 1.0
 		if (self.darkdata is None):
-			if (self.darkfield is not 'none'):
+			if (self.darkfield):
 				log.prNot(log.DEBUG, "Loading darkfield...")
 				self.darkdata = self.load(self.darkfield)
 				self.darkdata = self.darkdata.astype(N.float)
@@ -508,7 +530,7 @@ class Tool(object):
 		value inside the mask, so it will appear black.
 		"""
 		log.prNot(log.DEBUG, "Masking image.")
-		if (self.maskfile is 'none'):
+		if (self.maskfile is False):
 			return data
 		self.__initmask(self.origres)
 		data[self.mask == False] = N.min(data[self.mask])
@@ -691,7 +713,7 @@ class StatsTool(Tool):
 			dfimg = self.darkflat(img)
 			data = dfimg
 			# If a maskfile is given, only calculate stats within the subaperture.
-			if (self.maskfile is not 'none'):
+			if (self.maskfile):
 				size = self.saccdsize
 				substat = []
 				for p in self.saccdpos:
