@@ -288,15 +288,18 @@ def check_params(tool, params):
 	# Flatfield must exist
 	if (params['flatfield'] is not 'none') and \
 		(not os.path.exists(params['flatfield'])):
-		log.prNot(log.ERROR, "Flatfield does not exist.")
+		log.prNot(log.ERROR, "flatfield '%s' does not exist." % \
+		 	(params['flatfield']))
 	# Darkfield must exist
 	if (params['darkfield'] is not 'none') and \
 		(not os.path.exists(params['darkfield'])):
-		log.prNot(log.ERROR, "darkfield does not exist.")
+		log.prNot(log.ERROR, "darkfield '%s' does not exist." % \
+		 	(params['darkfield']))
 	# Makfile needs to exist
 	if (params['maskfile'] is not 'none') and \
 		(not os.path.exists(params['maskfile'])):
-		log.prNot(log.ERROR, "maskfile '%s' does not exist." % (params['maskfile']))
+		log.prNot(log.ERROR, "maskfile '%s' does not exist." % \
+		 	(params['maskfile']))
 	# File should not exist, find a new file if it does
 	if (params['file']):
 		libfile.saveOldFile(params['file'], postfix='.old', maxold=5)
