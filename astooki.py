@@ -108,6 +108,12 @@ Examples
    ../2009.04.22/*dd*1995 --dm=500 --mf=proc/2009.04.22-mask-crop3.csv \
    --nonorm wfwfs_test_im27Apr2009.0000042
 
+ To crop a portion of the image and store it as png:
+   astooki.py convert -vvv --ff *ff*1001 --fm=500 --df \
+   ../2009.04.22/*dd*1995 --dm=500 --crop 652,1108,168,146 --mf \
+   proc/2009.04.22-mask.csv --intclip 0.9,1.1 --outformat png \
+   wfwfs_test_im27Apr2009.0000001
+
  To measure image shifts over the whole subaperture, use a subfield file with 
  only one subfield with the size of the complete subimage except for a guard 
  range, combined with a regular subimage config file:
@@ -115,6 +121,7 @@ Examples
    ../2009.04.22/*dd*1995 --dm=500 --safile proc/2009.04.22-mask.csv \
    --sffile proc/2009.04.22-subfield-big.csv --range 7 --nref 5 \
    wfwfs_test_im27Apr2009.00000??
+
 
 ''' % (VERSION, DATE, AUTHOR)
 
@@ -537,16 +544,23 @@ class Tool(object):
 		if (self.norm):
 			# Normalize data per subapt
 			for p in self.saccdpos:
+				size = self.saccdsize
 				if (self.crop is not False):
 					p -= self.crop[0:2]
-					if (p < 0).any(): continue
+					# Skip subapertures that lie outside the cropped field of view
+					if (p + self.saccdsize < 0).any(): continue
 					if (p > self.crop[2:]).any(): continue
+					# Make sure positions are positive, and adapt size to that
+					poff = N.clip(p, 0, p.max()) - p
+					size -= poff
+					p = N.clip(p, 0, p.max())
+				
 				avg = N.mean(data[\
-					p[1]:p[1]+self.saccdsize[1], \
-					p[0]:p[0]+self.saccdsize[0]])
+					p[1]:p[1]+size[1], \
+					p[0]:p[0]+size[0]])
 				data[\
-					p[1]:p[1]+self.saccdsize[1], \
-					p[0]:p[0]+self.saccdsize[0]] /= avg
+					p[1]:p[1]+size[1], \
+					p[0]:p[0]+size[0]] /= avg
 				log.prNot(log.DEBUG, "maskimg(): normalizing, avg: %.3g" % (avg))
 		
 		return data
