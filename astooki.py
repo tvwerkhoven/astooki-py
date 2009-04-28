@@ -6,10 +6,12 @@
 @date 20090422 14:34
 @brief AsTooki: the astronomical toolkit - imagemagick for astronomers.
 
-Created by Tim on 2009-04-22.
-Copyright (c) 2009 Tim van Werkhoven. All rights reserved.
+Created by Tim van Werkhoven on 2009-04-22.
+Copyright (c) 2009 Tim van Werkhoven (tim@astro.su.se)
 
-$Id$
+This file is licensed under the Creative Commons Attribution-Share Alike
+license versions 3.0 or higher, see
+http://creativecommons.org/licenses/by-sa/3.0/
 """
 
 import sys
