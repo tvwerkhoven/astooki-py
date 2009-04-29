@@ -120,9 +120,7 @@ Examples
    astooki.py shifts -vvv --ff *ff*1001 --fm=500 --df \
    ../2009.04.22/*dd*1995 --dm=500 --safile proc/2009.04.22-mask.csv \
    --sffile proc/2009.04.22-subfield-big.csv --range 7 --nref 5 \
-   wfwfs_test_im27Apr2009.00000??
-
-
+   --file wfwfs_test_im27Apr2009-shifts wfwfs_test_im27Apr2009.0000{1,2}??
 ''' % (VERSION, DATE, AUTHOR)
 
 ### Supported formats
@@ -406,7 +404,17 @@ class Tool(object):
 			(self.nsa, self.saccdpos, self.saccdsize) = \
 			 	libsh.loadSaSfConf(self.maskfile)
 		
-		log.prNot(log.INFO, "Processing %d files." % (len(self.files)))
+		# This is the dataid, containing the direct parent directory, the base of 
+		# the file, and the range of extensions we have:
+		pardir = \
+		 	os.path.basename(os.path.dirname(os.path.realpath(self.files[0])))
+		basefile = os.path.splitext(os.path.basename(self.files[0]))[0]
+		begid = int((os.path.splitext(os.path.basename(self.files[0]))[1])[1:])
+		endid = int((os.path.splitext(os.path.basename(self.files[-1]))[1])[1:])
+		self.dataid = "%s_%s_%d-%d" % (pardir, basefile, begid, endid)
+		
+		log.prNot(log.INFO, "Processing %d files, dataid: %s" % \
+			(len(self.files), self.dataid))
 	
 	
 	def load(self, filename):
@@ -536,7 +544,8 @@ class Tool(object):
 		Apply a mask on an image, set all values outside the mask to the minimum 
 		value inside the mask, so it will appear black.
 		"""
-		log.prNot(log.DEBUG, "Masking image.")
+		log.prNot(log.DEBUG, "Masking image if necessary, res: %d,%d" % \
+		 	(tuple(self.origres)))
 		if (self.maskfile is False):
 			return data
 		self.__initmask(self.origres)
@@ -546,15 +555,14 @@ class Tool(object):
 			for p in self.saccdpos:
 				size = self.saccdsize
 				if (self.crop is not False):
-					p -= self.crop[0:2]
+					p = p - self.crop[0:2]
 					# Skip subapertures that lie outside the cropped field of view
 					if (p + self.saccdsize < 0).any(): continue
 					if (p > self.crop[2:]).any(): continue
 					# Make sure positions are positive, and adapt size to that
 					poff = N.clip(p, 0, p.max()) - p
-					size -= poff
+					size = size - poff
 					p = N.clip(p, 0, p.max())
-				
 				avg = N.mean(data[\
 					p[1]:p[1]+size[1], \
 					p[0]:p[0]+size[0]])
@@ -567,15 +575,17 @@ class Tool(object):
 	
 	
 	def __initmask(self, res):
-		if (self.mask is None) or (res != self.mask.shape):
+		if (self.mask is None) or (res != self.maskres):
 			# We need to make a new mask here
-				(self.mask, self.maskborder) = \
-					libsh.makeSubaptMask(self.saccdpos, self.saccdsize, res)
-				if (self.crop is not False):
-					self.mask = self.mask[self.crop[1]:self.crop[1] + self.crop[3], \
-						self.crop[0]:self.crop[0] + self.crop[2]]
-					self.maskborder = self.maskborder[self.crop[1]:self.crop[1] + \
-					 	self.crop[3], self.crop[0]:self.crop[0] + self.crop[2]]
+			log.prNot(log.DEBUG, "maskimg(): (re-)initializing mask with resolution %d,%d" % (tuple(res)))
+			(self.mask, self.maskborder) = \
+				libsh.makeSubaptMask(self.saccdpos, self.saccdsize, res)
+			self.maskres = self.mask.shape
+			if (self.crop is not False):
+				self.mask = self.mask[self.crop[1]:self.crop[1] + self.crop[3], \
+					self.crop[0]:self.crop[0] + self.crop[2]]
+				self.maskborder = self.maskborder[self.crop[1]:self.crop[1] + \
+				 	self.crop[3], self.crop[0]:self.crop[0] + self.crop[2]]
 				
 	
 
@@ -667,6 +677,9 @@ class ShiftTool(Tool):
 			libsh.loadSaSfConf(self.safile)
 		(self.nsf, self.sfccdpos, self.sfccdsize) = \
 			libsh.loadSaSfConf(self.sffile)
+		# Make sure we have a file to save results to
+		if (self.file is False):
+			self.file = os.path.realpath(self.dataid)
 		# Run analysis
 		self.run()
 	
@@ -675,8 +688,11 @@ class ShiftTool(Tool):
 		import libshifts as ls
 		# Process files
 		allshifts = []
+		allfiles = []
 		for f in self.files:
 			base = os.path.basename(f)
+			allfiles.append(base)
+			log.prNot(log.INFO, "Measuring shifts for %s." % (base))
 			# Load file
 			img = self.load(f)
 			if (img is None): 
@@ -695,11 +711,37 @@ class ShiftTool(Tool):
 			allshifts.append(imgshifts)
 		
 		# Process results, store to disk
-		log.prNot(log.INFO, "Done, saving results to disk.")
+		log.prNot(log.INFO, "Done, saving results to disk @ '%s'." % (self.file))
 		allshifts = N.array(allshifts)
-		if (self.file is not False):
-			nf = libfile.saveData(self.file + '-shifts', allshifts, asnpy=True, \
-			 	ascsv=True)
+		# Store the list of files where we save data to
+		files = {}
+		files['shifts'] = libfile.saveData(self.file + '-shifts', \
+			allshifts, asnpy=True)
+		files['saccdpos'] = libfile.saveData(self.file + '-saccdpos', \
+		 	self.saccdpos, asnpy=True)
+		files['sfccdpos'] = libfile.saveData(self.file + '-sfccdpos', \
+		 	self.sfccdpos, asnpy=True)
+		files['saccdsize'] = libfile.saveData(self.file + '-saccdsize', \
+		 	self.saccdsize, asnpy=True)
+		files['sfccdsize'] = libfile.saveData(self.file + '-sfccdsize', \
+		 	self.sfccdsize, asnpy=True)
+		files['files'] = libfile.saveData(self.file + '-files', \
+		 	allfiles, ascsv=True, csvfmt='%s')
+		
+		# If we have only one subfield, also calculate 'static' shifts
+		if (len(self.sfccdpos) == 1):
+			log.prNot(log.INFO, "Calculating static offsets.")
+			(soff, sofferr) =libsh.procStatShift(allshifts[:,:,:,0,:])
+			files['files'] = libfile.saveData(self.file + '-offset', \
+			 	soff, asnpy=True)
+			files['files'] = libfile.saveData(self.file + '-offset-err', \
+			 	sofferr, asnpy=True)
+			libplot.plotShifts(self.file + '-offset-plot', allshifts, \
+				self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
+				plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=True, \
+				 title='Static offsets for' + self.dataid,  legend=True)
+		
+		libfile.saveData(self.file + '-meta', files, aspickle=True)
 
 	
 
@@ -708,6 +750,8 @@ class StatsTool(Tool):
 	"""Calculate statistics on files"""
 	def __init__(self, files, params):
 		super(StatsTool, self).__init__(files, params)
+		if (self.file is False):
+			self.file = os.path.realpath(self.dataid)
 		self.run()
 	
 	
@@ -761,13 +805,12 @@ class StatsTool(Tool):
 		log.prNot(log.INFO, "all %d: mean: %.4g+-%.4g rms: %.4g+-%.4g (%.3g%%+-%.4g)" % \
 			(allstats.shape[0], all_avg[0], all_std[0], all_avg[2], all_std[2], all_avg[3], all_std[3]))
 		# Save results if requested
-		if (self.file is not False):
-			nf = libfile.saveData(self.file, allstats, asnpy=True)
-			hdr = ['filename, path=%s' % \
-			 	(os.path.dirname(os.path.realpath(self.files[0]))), 'avg', \
-			 	'std', 'rms', 'fractional rms']
-			cf = libfile.saveData(self.file, N.concatenate((allfiles, allstats), \
-			 	axis=1), ascsv=True, csvhdr=hdr, csvfmt='%s')
+		nf = libfile.saveData(self.file + '-stats', allstats, asnpy=True)
+		hdr = ['filename, path=%s' % \
+		 	(os.path.dirname(os.path.realpath(self.files[0]))), 'avg', \
+		 	'std', 'rms', 'fractional rms']
+		cf = libfile.saveData(self.file + '-stats', N.concatenate((allfiles, \
+		 	allstats), axis=1), ascsv=True, csvhdr=hdr, csvfmt='%s')
 
 	
 

@@ -1,14 +1,5 @@
 
-import liblog as log
+# load SA / SF config
 
-print log.VERBOSITY
-log.prNot(log.VERB_DEBUG, "Hi debug")
-log.VERBOSITY +=1
-
-print log.VERBOSITY
-log.prNot(log.VERB_DEBUG, "Hi debug")
-log.VERBOSITY +=1
-
-print log.VERBOSITY
-log.prNot(log.ERROR, "Hi err")
-log.VERBOSITY +=1
+(nsa, saccdpos, saccdsize) = libsh.loadSaSfConf('./2009.04.22-mask.csv')
+(nsf, sfccdpos, sfccdsize) = libsh.loadSaSfConf('2009.04.22-subfield-big.csv')
