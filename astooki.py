@@ -35,7 +35,9 @@ Tools
  convert                     Convert files to another format
  stats                       Get statistics on files
  samask                      Make a subaperture mask
+ sfmask                      Make a subfield mask
  saopt                       Optimze a subaperture mask with a flat
+ saupd                       Update a subaperture mask with an offset
  shifts                      Measure image shifts in various subfields and 
                                subimages
 
@@ -83,11 +85,21 @@ Samask options
      --scale=SCALE           global pattern scaling factor [1.0]
      --[no]plot              make a plot of the subaperture mask [yes]
 
+Sfmask options
+ -f, --file=FILEPATH         file to store subaperture configuration to
+     --sfsize=X,Y            subfield size [16, 16]
+     --sasize=X,Y            subaperture size to fit things in
+     --overlap=X,Y           how many overlap to allow between subfields in X 
+                               and Y direction [0.5, 0.5]
+     --border=X,Y            add a border around the subfields
+
 Saopt options
  -f, --file=FILEPATH         file to store optimized configuration to
      --saifac=FLOAT          intensity drop-off factor considered 'dark' [0.7]
      --rad=RAD               radius of the subaperture pattern, used for 
                                plotting [1024]
+Saupd options
+     --offsets=FILE          file holding offset vectors for all subapertures
 
 Shifts options
  -r, --range=INT             shift range to use for cross-correlation [7]
@@ -98,29 +110,35 @@ Shifts options
 Examples
  To calculate stats for a series of files in one directory, using dark- and
  flatfielding and cropping using a pre-calculated mask:
-   astooki.py stats -vvv --ff *ff*1001 --fm=500 --df ../2009.04.22/*dd*1995 \
-   --dm=500 --mf=proc/2009.04.22-mask-crop3.csv --file=proc/2009.04.27-stats \  
+   astooki.py stats -vvv --ff *ff*1001 --fm=500 --df ../2009.04.22/*dd*1995 \\
+   --dm=500 --mf=proc/2009.04.22-mask-crop3.csv --file=proc/2009.04.27-stats \\  
    wfwfs_test_im27Apr2009.0000???
 
  To convert one file to fits format while dark/flat-fielding and using a 
  cropmask without normalizing:
-   astooki.py convert -vvv --ff *ff*1001 --fm=500 --df \
-   ../2009.04.22/*dd*1995 --dm=500 --mf=proc/2009.04.22-mask-crop3.csv \
+   astooki.py convert -vvv --ff *ff*1001 --fm=500 --df \\
+   ../2009.04.22/*dd*1995 --dm=500 --mf=proc/2009.04.22-mask-crop3.csv \\
    --nonorm wfwfs_test_im27Apr2009.0000042
 
  To crop a portion of the image and store it as png:
-   astooki.py convert -vvv --ff *ff*1001 --fm=500 --df \
-   ../2009.04.22/*dd*1995 --dm=500 --crop 652,1108,168,146 --mf \
-   proc/2009.04.22-mask.csv --intclip 0.9,1.1 --outformat png \
+   astooki.py convert -vvv --ff *ff*1001 --fm=500 --df \\
+   ../2009.04.22/*dd*1995 --dm=500 --crop 652,1108,168,146 --mf \\
+   proc/2009.04.22-mask.csv --intclip 0.9,1.1 --outformat png \\
    wfwfs_test_im27Apr2009.0000001
 
  To measure image shifts over the whole subaperture, use a subfield file with 
  only one subfield with the size of the complete subimage except for a guard 
  range, combined with a regular subimage config file:
-   astooki.py shifts -vvv --ff *ff*1001 --fm=500 --df \
-   ../2009.04.22/*dd*1995 --dm=500 --safile proc/2009.04.22-mask.csv \
-   --sffile proc/2009.04.22-subfield-big.csv --range 7 --nref 5 \
+   astooki.py shifts -vvv --ff *ff*1001 --fm=500 --df \\
+   ../2009.04.22/*dd*1995 --dm=500 --safile proc/2009.04.22-mask.csv \\
+   --sffile proc/2009.04.22-subfield-big.csv --range 7 --nref 5 \\
    --file wfwfs_test_im27Apr2009-shifts wfwfs_test_im27Apr2009.0000{1,2}??
+
+ astooki.py saupd -vv --plot --mf 2009.04.22-mask.csv --offset offset-csv.csv
+ 
+ astooki.py sfmask -vv --plot --file 'subfieldmask.csv' --sfsize=16,16 \\
+   --sasize=165,139 --overlap=0.5,0.5 --border=6,6
+
 ''' % (VERSION, DATE, AUTHOR)
 
 ### Supported formats
@@ -131,7 +149,7 @@ _FORMAT_NPY = 'npy'
 _INFORMATS = (_FORMAT_ANA, _FORMAT_FITS)
 _OUTFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_PNG, _FORMAT_NPY)
 # Tools available
-_TOOLS = ('convert', 'stats', 'samask', 'saopt', 'shifts')
+_TOOLS = ('convert', 'stats', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts')
 
 ### ==========================================================================
 ### Startup functions
@@ -147,7 +165,9 @@ def main(argv=None):
 	if (tool == 'convert'): ConvertTool(files,params)
 	elif (tool == 'stats'): StatsTool(files, params)
 	elif (tool == 'samask'): SubaptConfTool(files, params)
+	elif (tool == 'sfmask'): SubfieldConfTool(files, params)
 	elif (tool == 'saopt'): SubaptOptTool(files, params)
+	elif (tool == 'saupd'): SubaptUpdateTool(files, params)
 	elif (tool == 'shifts'): ShiftTool(files, params)
 	# done
 	log.prNot(log.INFO, "Complete.")
@@ -163,13 +183,14 @@ def parse_options():
 	# First check whether argv[1] is present (could be -h, --help or a tool)
 	try:
 		tool = argv[1]
-		if tool not in _TOOLS:
+		if tool in ["-h", "--help"]: print_help()
+		elif tool not in _TOOLS:
 			raise Exception
 	except:
 		print >> sys.stderr, os.path.basename(sys.argv[0]) + ": Syntax incorrect."
 		print >> sys.stderr, "\t for help use --help"
 		sys.exit(2)
-	if tool in ["-h", "--help"]: print_help()
+	
 		
 	
 	# Parse common options first
@@ -177,7 +198,7 @@ def parse_options():
 	
 	params = get_defaults(tool)
 	
-	opts, args = getopt.getopt(argv[2:], "vhsi:o:f:r:n:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "scale=", "rad=", "shape=", "size=", "pitch=", "xoff=", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref="])
+	opts, args = getopt.getopt(argv[2:], "vhsi:o:f:r:n:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "scale=", "rad=", "shape=", "size=", "pitch=", "xoff=", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets="])
 	# Remaining 'args' must be files
 	files = args
 	
@@ -218,18 +239,29 @@ def parse_options():
 			if option in ["--xoff"]: params['xoff'] = value.split(',')
 			if option in ["--disp"]: params['disp'] = value.split(',')
 			if option in ["--scale"]: params['scale'] = float(value)
+	elif (tool == 'sfmask'):
+		for option, value in opts:
+			log.prNot(log.DEBUG, 'Parsing sfmask: %s:%s' % (option, value))
+			if option in ["--sfsize"]: params['sfsize'] = value.split(',')
+			if option in ["--sasize"]: params['sasize'] = value.split(',')
+			if option in ["--overlap"]: params['overlap'] = value.split(',')
+			if option in ["--border"]: params['border'] = value.split(',')
 	elif (tool == 'saopt'):
 		for option, value in opts:
 			log.prNot(log.DEBUG, 'Parsing saopt: %s:%s' % (option, value))
 			if option in ["--saifac"]: params['saifac'] = float(value)
 			if option in ["--rad"]: params['rad'] = float(value)
+	elif (tool == 'saupd'):
+		for option, value in opts:
+			log.prNot(log.DEBUG, 'Parsing saupd: %s:%s' % (option, value))
+			if option in ["--offsets"]: params['offsets'] = os.path.realpath(value)
 	elif (tool == 'shifts'):
 		for option, value in opts:
 			log.prNot(log.DEBUG, 'Parsing shift: %s:%s' % (option, value))
-			if option in ["-r", "--range"]: params['shrange'] = float(value)
+			if option in ["-r", "--range"]: params['shrange'] = N.int32(value)
 			if option in ["--safile"]: params['safile'] = os.path.realpath(value)
 			if option in ["--sffile"]: params['sffile'] = os.path.realpath(value)
-			if option in ["-n", "--nref"]: params['nref'] = int(value)
+			if option in ["-n", "--nref"]: params['nref'] = N.int32(value)
 	
 	return (tool, params, files)
 
@@ -262,8 +294,16 @@ def get_defaults(tool):
 	default['pitch'] = ['164','164']
 	default['xoff'] = ['0', '0.5']
 	default['disp'] = ['0','0']
+	# sfmask defaults
+	default['sfsize'] = ['16', '16']
+	default['sasize'] = ['0', '0']
+	default['overlap'] = ['0.5', '0.5']
+	default['border'] = ['6', '6']
 	# Saopt defaults
 	default['saifac'] = 0.7
+	# Saupd defaults
+	default['offsets'] = False
+	
 	# Shift defaults
 	default['shrange'] = 7
 	default['safile'] = False
@@ -336,12 +376,12 @@ def check_params(tool, params):
 	# Size should be (int, int)
 	try: 
 		tmp = params['size'][1]
-		params['size'] = N.array(params['size'][0:2]).astype(N.int)
+		params['size'] = N.array(params['size'][0:2]).astype(N.int32)
 	except: log.prNot(log.ERROR, "size invalid, should be <int>,<int>.")
 	# pitch should be int, int
 	try: 
 		tmp = params['pitch'][1]
-		params['pitch'] = N.array(params['pitch'][0:2]).astype(N.int)
+		params['pitch'] = N.array(params['pitch'][0:2]).astype(N.int32)
 	except: log.prNot(log.ERROR, "pitch invalid, should be <int>,<int>.")
 	# xoff should be floats
 	try: 
@@ -349,16 +389,42 @@ def check_params(tool, params):
 		params['xoff'] = N.array(params['xoff'][0:2]).astype(N.float)
 	except: log.prNot(log.ERROR, "xoff invalid, should be <float>,<float>.")
 	# disp should be int, int
-	try: params['disp'] = N.array(params['disp'][0:2]).astype(N.int)
+	try: params['disp'] = N.array(params['disp'][0:2]).astype(N.int32)
 	except: log.prNot(log.ERROR, "disp invalid, should be <int>,<int>.")
 	
+	try: 
+		tmp = params['sfsize'][1]
+		params['sfsize'] = N.array(params['sfsize'][0:2]).astype(N.int32)
+	except: log.prNot(log.ERROR, "sfsize invalid, should be <int>,<int>.")
+	try: 
+		tmp = params['sasize'][1]
+		params['sasize'] = N.array(params['sasize'][0:2]).astype(N.int32)
+	except: log.prNot(log.ERROR, "sasize invalid, should be <int>,<int>.")
+	try: 
+		tmp = params['overlap'][1]
+		params['overlap'] = N.array(params['overlap'][0:2]).astype(N.float32)
+	except:
+		log.prNot(log.ERROR, "overlap invalid, should be <float>,<float>.")
+	try: 
+		tmp = params['border'][1]
+		params['border'] = N.array(params['border'][0:2]).astype(N.int32)
+	except:
+		log.prNot(log.ERROR, "border invalid, should be <int>,<int>.")
+	# Offset file needs to exist
+	if (params['offsets']) and \
+		(not os.path.exists(params['offsets'])):
+		log.prNot(log.ERROR, "offset file '%s' does not exist." % \
+		 	(params['offsets']))
+
 	# Requirements depending on tools (where defaults are not sufficient)
 	# ===================================================================
 	if (tool == 'saopt'):
 		# need flatfield, maskfile
-		if (not os.path.exists(params['flatfield'])):
+		if (params['flatfield']) and \
+			(not os.path.exists(params['flatfield'])):
 			log.prNot(log.ERROR, "Tool 'saopt' requires flatfield.")
-		if (not os.path.exists(params['maskfile'])):
+		if (params['maskfile']) and \
+			(not os.path.exists(params['maskfile'])):
 			log.prNot(log.ERROR, "Tool 'saopt' requires maskfile.")
 	elif (tool == 'shifts'):
 		# need safile and sffile
@@ -370,6 +436,20 @@ def check_params(tool, params):
 			(not os.path.exists(params['sffile'])):
 			log.prNot(log.ERROR, "sffile '%s' does not exist." % \
 			 	(params['sffile']))
+	elif (tool == 'sfmask'):
+		# sasize > sfsize, both must be int, int
+		if (params['sasize'] < params['sfsize']).any():
+			log.prNot(log.ERROR, "sasize must be bigger than sfsize.")
+		if (params['overlap'] > 1).any() or (params['overlap'] < 0).any():
+			log.prNot(log.ERROR, "overlap must be between 0 and 1.")
+	elif (tool == 'saupd'):
+		# Saupd needs maskfile, offset file
+		if (params['maskfile']) and \
+			(not os.path.exists(params['maskfile'])):
+			log.prNot(log.ERROR, "Tool 'saupd' requires maskfile.")
+		if (params['offsets']) and \
+			(not os.path.exists(params['offsets'])):
+			log.prNot(log.ERROR, "Tool 'saupd' requires offsets file.")
 	
 	# Done
 
@@ -406,12 +486,15 @@ class Tool(object):
 		
 		# This is the dataid, containing the direct parent directory, the base of 
 		# the file, and the range of extensions we have:
-		pardir = \
-		 	os.path.basename(os.path.dirname(os.path.realpath(self.files[0])))
-		basefile = os.path.splitext(os.path.basename(self.files[0]))[0]
-		begid = int((os.path.splitext(os.path.basename(self.files[0]))[1])[1:])
-		endid = int((os.path.splitext(os.path.basename(self.files[-1]))[1])[1:])
-		self.dataid = "%s_%s_%d-%d" % (pardir, basefile, begid, endid)
+		if (len(self.files) > 0):
+			pardir = \
+			 	os.path.basename(os.path.dirname(os.path.realpath(self.files[0])))
+			basefile = os.path.splitext(os.path.basename(self.files[0]))[0]
+			begid = int((os.path.splitext(os.path.basename(self.files[0]))[1])[1:])
+			endid = int((os.path.splitext(os.path.basename(self.files[-1]))[1])[1:])
+			self.dataid = "%s_%s_%d-%d" % (pardir, basefile, begid, endid)
+		else:
+			self.dataid = "astooki-generic"
 		
 		log.prNot(log.INFO, "Processing %d files, dataid: %s" % \
 			(len(self.files), self.dataid))
@@ -632,6 +715,89 @@ class SubaptConfTool(Tool):
 	
 
 
+class SubfieldConfTool(Tool):
+	"""Calculate subfield configurations."""
+	def __init__(self, files, params):
+		super(SubfieldConfTool, self).__init__(files, params)
+		# Subaperture size
+		self.sasize = params['sasize']
+		# Subfield size
+		self.sfsize = params['sfsize']
+		# Overlap
+		self.overlap = params['overlap']
+		# Border 
+		self.border = params['border']
+		
+		if params['file']: self.file = params['file']
+		else: self.file = './astooki-subfieldconf.csv'
+		
+		self.run()
+	
+	
+	def run(self):
+		# Generate subfield positions
+		effsize = self.sasize - 2*self.border
+		pitch = self.sfsize * (1-self.overlap)
+		nsf = effsize / pitch
+		nsf = N.round(nsf-1)
+		effpitch = effsize/(nsf+1)
+		
+		sfpos = self.border + \
+			N.indices(nsf, dtype=N.float32).reshape(2,-1).T * effpitch
+		sfpos = N.round(sfpos).astype(N.int32)
+		totnsf = N.product(nsf).astype(N.int32)
+		
+		log.prNot(log.INFO, "Found %d x %d subfields." % tuple(nsf))
+		log.prNot(log.INFO, "Size %d,%d" % tuple(self.sfsize))
+		libsh.saveSaSfConf(self.file, totnsf, [-1,-1], self.sfsize, sfpos)
+		if (self.plot):
+			plfile = os.path.splitext(self.file)[0]+'-plot.eps'
+			libplot.showSaSfLayout(plfile, sfpos, self.sfsize, \
+				plrange=[[0, self.sasize[0]], [0, self.sasize[1]]])
+		# Done
+		
+	
+
+
+class SubaptUpdateTool(Tool):
+	"""Update subaperture configurations with an offset."""
+	def __init__(self, files, params):
+		super(SubaptUpdateTool, self).__init__(files, params)
+		# Output file
+		tmp = os.path.splitext(self.maskfile)
+		self.file = tmp[0]+'-updated'+tmp[1]
+		self.offsets = params['offsets']
+		
+		self.run()
+		
+	
+	
+	def run(self):
+		# Load mask file
+		(nsa, pos, size) = \
+		 	libsh.loadSaSfConf(self.maskfile)
+		# load offsets
+		off = libfile.loadData(self.offsets, ascsv=True)
+		
+		# Compare
+		if (off.shape[0] != nsa):
+			log.prNot(log.ERROR, "SubaptUpdateTool(): offsets not the same size as subaperture positions.")
+		
+		# Offset the new positions
+		newpos = (pos + off).astype(N.int32)
+		# Crop the subaperture size by twice the maximum offset
+		newsize = (size - (N.max(off, axis=0)*2)).astype(N.int32)
+		# Store
+		libsh.saveSaSfConf(self.file, nsa, [-1,-1], newsize, newpos)
+		if (self.plot):
+			plfile = os.path.splitext(self.file)[0]+'-plot.eps'
+			plran = [[0, N.ceil(1600./512)*512]]*2
+			libplot.showSaSfLayout(plfile, newpos, newsize, \
+				plrange=plran)
+		# Done
+	
+
+
 class SubaptOptTool(Tool):
 	"""Optimize subaperture configurations."""
 	def __init__(self, files, params):
@@ -726,14 +892,14 @@ class ShiftTool(Tool):
 		files['sfccdsize'] = libfile.saveData(self.file + '-sfccdsize', \
 		 	self.sfccdsize, asnpy=True)
 		files['files'] = libfile.saveData(self.file + '-files', \
-		 	allfiles, ascsv=True, csvfmt='%s')
+		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')
 		
 		# If we have only one subfield, also calculate 'static' shifts
 		if (len(self.sfccdpos) == 1):
 			log.prNot(log.INFO, "Calculating static offsets.")
 			(soff, sofferr) =libsh.procStatShift(allshifts[:,:,:,0,:])
 			files['files'] = libfile.saveData(self.file + '-offset', \
-			 	soff, asnpy=True)
+			 	soff, asnpy=True, ascsv=True)
 			files['files'] = libfile.saveData(self.file + '-offset-err', \
 			 	sofferr, asnpy=True)
 			libplot.plotShifts(self.file + '-offset-plot', allshifts, \
@@ -762,41 +928,8 @@ class StatsTool(Tool):
 		for f in self.files:
 			base = os.path.basename(f)
 			allfiles.append(base)
-			# Load file
-			img = self.load(f)
-			if (img is None): 
-				log.prNot(log.DEBUG, "Skipping %s, could not read file." % (base))
-				continue
-			# Dark-flat file if needed
-			dfimg = self.darkflat(img)
-			data = dfimg
-			# If a maskfile is given, only calculate stats within the subaperture.
-			if (self.maskfile):
-				size = self.saccdsize
-				substat = []
-				for p in self.saccdpos:
-					_sub = data[\
-						p[1]:p[1]+size[1], \
-						p[0]:p[0]+size[0]]
-					avg = N.mean(_sub)
-					std = N.var(_sub)**0.5
-					rms = (N.sum((_sub-avg)**2.0)/_sub.size)**0.5
-					rmsrat = 100.0*rms/avg
-					substat.append([avg, std, rms, rmsrat])
-				substat = N.mean(N.array(substat), axis=0)
-				allstats.append(list(substat))
-				log.prNot(log.INFO, "%s: mean: %.4g std: %.4g rms: %.4g (%.3g%%)" % \
-					(base, substat[0], substat[1], substat[2], substat[3]))
-			else:
-				# If no maskfile given, calculate stats for all pixels
-				r = (N.min(data), N.max(data))
-				avg = N.mean(data)
-				std = N.var(data)**0.5
-				rms = (N.sum((data-avg)**2.0)/data.size)**0.5
-				rmsrat = 100.0*rms/avg	
-				log.prNot(log.INFO, "%s: mean: %.4g std: %.4g range: %.3g--%.3g rms: %.4g (%.3g%%)" % \
-					(base, avg, std, r[0], r[1], rms, rmsrat))
-				allstats.append([avg, std, rms, rmsrat])
+			allstats.append(self.dowork(f))
+		
 		# Process stats for all files, display average
 		allstats = N.array(allstats)
 		allfiles = (N.array(allfiles)).reshape(-1,1)
@@ -811,8 +944,48 @@ class StatsTool(Tool):
 		 	'std', 'rms', 'fractional rms']
 		cf = libfile.saveData(self.file + '-stats', N.concatenate((allfiles, \
 		 	allstats), axis=1), ascsv=True, csvhdr=hdr, csvfmt='%s')
-
 	
+	
+	def dowork(file):
+		# Load file
+		img = self.load(f)
+		if (img is None): 
+			log.prNot(log.DEBUG, "Skipping %s, could not read file." % (base))
+			return False
+		# Dark-flat file if needed
+		dfimg = self.darkflat(img)
+		data = dfimg
+		# If a maskfile is given, only calculate stats within the subaperture.
+		if (self.maskfile):
+			size = self.saccdsize
+			substat = []
+			for p in self.saccdpos:
+				_sub = data[\
+					p[1]:p[1]+size[1], \
+					p[0]:p[0]+size[0]]
+				avg = N.mean(_sub)
+				std = N.var(_sub)**0.5
+				rms = (N.sum((_sub-avg)**2.0)/_sub.size)**0.5
+				rmsrat = 100.0*rms/avg
+				substat.append([avg, std, rms, rmsrat])
+			substat = N.mean(N.array(substat), axis=0)
+			log.prNot(log.INFO, "%s: mean: %.4g std: %.4g rms: %.4g (%.3g%%)" % \
+				(base, substat[0], substat[1], substat[2], substat[3]))
+			return list(substat)
+		else:
+			# If no maskfile given, calculate stats for all pixels
+			r = (N.min(data), N.max(data))
+			avg = N.mean(data)
+			std = N.var(data)**0.5
+			rms = (N.sum((data-avg)**2.0)/data.size)**0.5
+			rmsrat = 100.0*rms/avg	
+			log.prNot(log.INFO, "%s: mean: %.4g std: %.4g range: %.3g--%.3g rms: %.4g (%.3g%%)" % \
+				(base, avg, std, r[0], r[1], rms, rmsrat))
+			return [avg, std, rms, rmsrat]
+		
+		# done
+	
+
 
 
 class ConvertTool(Tool):
