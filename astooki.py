@@ -21,8 +21,8 @@ import numpy as N
 import scipy as S
 import libsh
 import libfile
-import libplot
 import liblog as log
+#import libplot
 
 VERSION = "0.0.1"
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
@@ -721,6 +721,7 @@ class SubaptConfTool(Tool):
 		# Save to file
 		libsh.saveSaSfConf(self.file, nsa, [-1,-1], saccdsize, saccdpos)
 		if (self.plot):
+			import libplot
 			plfile = os.path.splitext(self.file)[0]+'-plot.eps'
 			libplot.showSaSfLayout(plfile, saccdpos, saccdsize, \
 				plrange=[[0, 2*self.rad]]*2)
@@ -765,6 +766,7 @@ class SubfieldConfTool(Tool):
 		log.prNot(log.INFO, "Size %d,%d" % tuple(self.sfsize))
 		libsh.saveSaSfConf(self.file, totnsf, [-1,-1], self.sfsize, sfpos)
 		if (self.plot):
+			import libplot
 			plfile = os.path.splitext(self.file)[0]+'-plot.eps'
 			libplot.showSaSfLayout(plfile, sfpos, self.sfsize, \
 				plrange=[[0, self.sasize[0]], [0, self.sasize[1]]])
@@ -804,6 +806,7 @@ class SubaptUpdateTool(Tool):
 		# Store
 		libsh.saveSaSfConf(self.file, nsa, [-1,-1], newsize, newpos)
 		if (self.plot):
+			import libplot
 			plfile = os.path.splitext(self.file)[0]+'-plot.eps'
 			plran = [[0, N.ceil(1600./512)*512]]*2
 			libplot.showSaSfLayout(plfile, newpos, newsize, \
@@ -837,6 +840,7 @@ class SubaptOptTool(Tool):
 		# Save to file
 		libsh.saveSaSfConf(self.file, onsa, [-1,-1], osize, opos)
 		if (self.plot):
+			import libplot
 			plfile = os.path.splitext(self.file)[0]+'-plot.eps'
 			libplot.showSaSfLayout(plfile, opos, osize, \
 				plrange=[[0, 2*self.rad]]*2)
@@ -929,10 +933,12 @@ class ShiftTool(Tool):
 			 	soff, asnpy=True, ascsv=True)
 			files['files'] = libfile.saveData(self.file + '-offset-err', \
 			 	sofferr, asnpy=True)
-			libplot.plotShifts(self.file + '-offset-plot', allshifts, \
-				self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
-				plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=True, \
-				 title='Static offsets for' + self.dataid,  legend=True)
+			if (self.plot):
+				import libplot
+				libplot.plotShifts(self.file + '-offset-plot', allshifts, \
+					self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
+					plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=True, \
+					 title='Static offsets for' + self.dataid,  legend=True)
 		
 		libfile.saveData(self.file + '-meta', files, aspickle=True)
 
