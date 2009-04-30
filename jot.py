@@ -1,7 +1,11 @@
+#!/usr/bin/env python2.5
+# encoding: utf-8
 
 import pyana
 import libsh
-import Clibshifts
+import numpy
+import scipy
+#import Clibshifts
 
 pdir = './data/2009.04.27/proc/'
 ddir = './data/2009.04.27/'
@@ -13,10 +17,10 @@ imfile = 'wfwfs_test_im27Apr2009.0001000'
  	libsh.loadSaSfConf(pdir+'2009.04.22-subfield-big.csv')
 
 # load image 
-img = pyana.load(ddir+imfile)
+img = pyana.getdata(ddir+imfile)
 
 # Pass to C library
 
-Clibshifts.calcShifts(img, saccdpos, saccdsize, sfccdpos, sfccdsize, N.array([4,4]))
+#Clibshifts.calcShifts(img, saccdpos, saccdsize, sfccdpos, sfccdsize, N.array([4,4]))
 
 # done
