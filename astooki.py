@@ -44,6 +44,7 @@ Tools
 Input formats supported
  ana                         ANA format
  fits                        Flexible Image Transport System
+ npy                         NumPy binary data files
 
 Output formats supported
  ana                         ANA format
@@ -134,11 +135,23 @@ Examples
    --sffile proc/2009.04.22-subfield-big.csv --range 7 --nref 5 \\
    --file wfwfs_test_im27Apr2009-shifts wfwfs_test_im27Apr2009.0000{1,2}??
 
+ Updating subaperture positions:
  astooki.py saupd -vv --plot --mf 2009.04.22-mask.csv --offset offset-csv.csv
- 
+
+ Making a subfield mask with 16x16 pix subfields and 0.5 overlap on each side:
  astooki.py sfmask -vv --plot --file 'subfieldmask.csv' --sfsize=16,16 \\
    --sasize=165,139 --overlap=0.5,0.5 --border=6,6
 
+ Subfield shift measurement using the above corrected subimage positions and
+ subfields:
+ astooki.py shifts -vv --ff *ff*1001 --fm=500 --df ../2009.04.22/*dd*1995 \\
+   --dm=500 --safile proc/2009.04.22-mask-updated.csv --sffile \\
+   proc/2009.04.27-subfieldmask.csv --range 6 --nref 2 \\
+   wfwfs_test_im27Apr2009.000020?
+
+ Convert numpy data to fits format:
+ astooki.py convert -vvv --informat npy --outformat fits \\
+   2009.04.27_wfwfs_test_im27Apr2009_200-209-shifts.npy
 ''' % (VERSION, DATE, AUTHOR)
 
 ### Supported formats
@@ -146,7 +159,7 @@ _FORMAT_ANA = 'ana'
 _FORMAT_FITS = 'fits'
 _FORMAT_PNG = 'png'
 _FORMAT_NPY = 'npy'
-_INFORMATS = (_FORMAT_ANA, _FORMAT_FITS)
+_INFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_NPY)
 _OUTFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_PNG, _FORMAT_NPY)
 # Tools available
 _TOOLS = ('convert', 'stats', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts')
@@ -486,18 +499,9 @@ class Tool(object):
 		
 		# This is the dataid, containing the direct parent directory, the base of 
 		# the file, and the range of extensions we have:
-		if (len(self.files) > 0):
-			pardir = \
-			 	os.path.basename(os.path.dirname(os.path.realpath(self.files[0])))
-			basefile = os.path.splitext(os.path.basename(self.files[0]))[0]
-			begid = int((os.path.splitext(os.path.basename(self.files[0]))[1])[1:])
-			endid = int((os.path.splitext(os.path.basename(self.files[-1]))[1])[1:])
-			self.dataid = "%s_%s_%d-%d" % (pardir, basefile, begid, endid)
-		else:
-			self.dataid = "astooki-generic"
 		
-		log.prNot(log.INFO, "Processing %d files, dataid: %s" % \
-			(len(self.files), self.dataid))
+		log.prNot(log.INFO, "Processing %d files" % \
+			(len(self.files)))
 	
 	
 	def load(self, filename):
@@ -510,7 +514,10 @@ class Tool(object):
 			data = self.__anaload(filename)
 		elif (self.informat == _FORMAT_FITS):
 			data = self.__fitsload(filename)	
+		elif (self.informat == _FORMAT_NPY):
+			data = self.__npyload(filename)	
 		else:
+			log.prNot(log.WARN, "Filetype unsupported." % (filename))			
 			return None
 		self.origres = data.shape
 		if (self.crop is not False):
@@ -530,12 +537,19 @@ class Tool(object):
 		return pyana.getdata(filename)
 	
 	
+	def __npyload(self, filename):
+		import numpy
+		return numpy.load(filename)
+	
+	
 	def darkflat(self, data):
 		# Init dark-flat fields
-		self.__initdarkflat()
-		# Now process the frame
-		log.prNot(log.DEBUG, "Dark-flatfielding data. Dark avg: %.4g, gain avg: %.4g" % (N.mean(self.darkdata), N.mean(self.gaindata)))
-		return (data.astype(N.float)-self.darkdata) * self.gaindata
+		if (self.flatfield or self.darkfield):
+			self.__initdarkflat()
+			log.prNot(log.DEBUG, "Dark-flatfielding data. Dark avg: %.4g, gain avg: %.4g" % (N.mean(self.darkdata), N.mean(self.gaindata)))		
+			# Now process the frame
+			return (data-self.darkdata) * self.gaindata
+		return data
 	
 	
 	def __initdarkflat(self):
@@ -544,24 +558,24 @@ class Tool(object):
 			if (self.flatfield):
 				log.prNot(log.DEBUG, "Loading flatfield...")
 				self.flatdata = self.load(self.flatfield)
-				self.flatdata = self.flatdata.astype(N.float)
+				self.flatdata = self.flatdata.astype(N.float32)
 				self.flatdata /= 1.0*self.flatmulti
 				log.prNot(log.DEBUG, "Flatfield average: %.6g" % N.mean(self.flatdata))
 			else:
 				# Maybe we don't want flatfielding, in that case set it to 1.0
 				log.prNot(log.DEBUG, "Not flatfielding, setting to 1.0")
-				self.gaindata = 1.0
+				self.gaindata = N.float32(1.0)
 		if (self.darkdata is None):
 			if (self.darkfield):
 				log.prNot(log.DEBUG, "Loading darkfield...")
 				self.darkdata = self.load(self.darkfield)
-				self.darkdata = self.darkdata.astype(N.float)
+				self.darkdata = self.darkdata.astype(N.float32)
 				self.darkdata /= 1.0*self.darkmulti
 				log.prNot(log.DEBUG, "Darkfield average: %.6g" % N.mean(self.darkdata))
 			else:
 				# Maybe we don't want darkfielding, in that case set it to 1.0
 				log.prNot(log.DEBUG, "Not darkfielding, setting to 0.0")
-				self.darkdata = 0.0
+				self.darkdata = N.float32(0.0)
 		if (self.gaindata is None):
 			# Make a gain for faster processing
 			self.gaindata = 1.0/(self.flatdata - self.darkdata)
@@ -627,10 +641,10 @@ class Tool(object):
 		Apply a mask on an image, set all values outside the mask to the minimum 
 		value inside the mask, so it will appear black.
 		"""
-		log.prNot(log.DEBUG, "Masking image if necessary, res: %d,%d" % \
-		 	(tuple(self.origres)))
 		if (self.maskfile is False):
 			return data
+		log.prNot(log.DEBUG, "Masking image if necessary, res: %d,%d" % \
+		 	(tuple(self.origres)))
 		self.__initmask(self.origres)
 		data[self.mask == False] = N.min(data[self.mask])
 		if (self.norm):
@@ -843,6 +857,15 @@ class ShiftTool(Tool):
 			libsh.loadSaSfConf(self.safile)
 		(self.nsf, self.sfccdpos, self.sfccdsize) = \
 			libsh.loadSaSfConf(self.sffile)
+		if (len(self.files) > 0):
+			pardir = \
+			 	os.path.basename(os.path.dirname(os.path.realpath(self.files[0])))
+			basefile = os.path.splitext(os.path.basename(self.files[0]))[0]
+			begid = int((os.path.splitext(os.path.basename(self.files[0]))[1])[1:])
+			endid = int((os.path.splitext(os.path.basename(self.files[-1]))[1])[1:])
+			self.dataid = "%s_%s_%d-%d" % (pardir, basefile, begid, endid)
+		else:
+			self.dataid = "astooki-generic"			
 		# Make sure we have a file to save results to
 		if (self.file is False):
 			self.file = os.path.realpath(self.dataid)
@@ -857,13 +880,13 @@ class ShiftTool(Tool):
 		allfiles = []
 		for f in self.files:
 			base = os.path.basename(f)
-			allfiles.append(base)
 			log.prNot(log.INFO, "Measuring shifts for %s." % (base))
 			# Load file
 			img = self.load(f)
 			if (img is None): 
 				log.prNot(log.DEBUG, "Skipping %s, could not read file." % (base))
 				continue
+			allfiles.append(base)
 			# Dark-flat file if needed
 			dfimg = self.darkflat(img)
 			
@@ -882,7 +905,7 @@ class ShiftTool(Tool):
 		# Store the list of files where we save data to
 		files = {}
 		files['shifts'] = libfile.saveData(self.file + '-shifts', \
-			allshifts, asnpy=True)
+			allshifts, asnpy=True, asfits=True)
 		files['saccdpos'] = libfile.saveData(self.file + '-saccdpos', \
 		 	self.saccdpos, asnpy=True)
 		files['sfccdpos'] = libfile.saveData(self.file + '-sfccdpos', \
@@ -891,6 +914,10 @@ class ShiftTool(Tool):
 		 	self.saccdsize, asnpy=True)
 		files['sfccdsize'] = libfile.saveData(self.file + '-sfccdsize', \
 		 	self.sfccdsize, asnpy=True)
+		cpos = self.saccdpos.reshape(-1,1,2) + self.sfccdpos.reshape(1,-1,2) + \
+			self.sfccdsize.reshape(1,1,2)/2.0
+		files['sasfpos-c'] = libfile.saveData(self.file + '-sasfpos-c', \
+		 	cpos, asnpy=True, asfits=True)
 		files['files'] = libfile.saveData(self.file + '-files', \
 		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')
 		
@@ -916,8 +943,16 @@ class StatsTool(Tool):
 	"""Calculate statistics on files"""
 	def __init__(self, files, params):
 		super(StatsTool, self).__init__(files, params)
-		if (self.file is False):
-			self.file = os.path.realpath(self.dataid)
+		if (len(self.files) > 0):
+			pardir = \
+			 	os.path.basename(os.path.dirname(os.path.realpath(self.files[0])))
+			basefile = os.path.splitext(os.path.basename(self.files[0]))[0]
+			begid = int((os.path.splitext(os.path.basename(self.files[0]))[1])[1:])
+			endid = int((os.path.splitext(os.path.basename(self.files[-1]))[1])[1:])
+			self.dataid = "%s_%s_%d-%d" % (pardir, basefile, begid, endid)
+		else:
+			self.dataid = "astooki-generic"
+		self.file = os.path.realpath(self.dataid)
 		self.run()
 	
 	
@@ -1003,7 +1038,7 @@ class ConvertTool(Tool):
 		# Process files
 		for f in self.files:
 			base = os.path.basename(f)
-			log.prNot(log.INFO, "Convertintg file '%s' to %s" % (base, \
+			log.prNot(log.INFO, "Converting file '%s' to %s" % (base, \
 			 	self.outformat))
 			# Load file
 			img = self.load(f)
