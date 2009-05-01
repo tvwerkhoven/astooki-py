@@ -20,7 +20,7 @@ import os
 import numpy as N
 import scipy as S
 import libsh
-import libfile
+import libfile as lf
 import liblog as log
 #import libplot
 
@@ -40,6 +40,7 @@ Tools
  saupd                       Update a subaperture mask with an offset
  shifts                      Measure image shifts in various subfields and 
                                subimages
+ procshifts                  Process shifts measured with the shifts tool
 
 Input formats supported
  ana                         ANA format
@@ -162,7 +163,7 @@ _FORMAT_NPY = 'npy'
 _INFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_NPY)
 _OUTFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_PNG, _FORMAT_NPY)
 # Tools available
-_TOOLS = ('convert', 'stats', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts')
+_TOOLS = ('convert', 'stats', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts', 'procshifts')
 
 ### ==========================================================================
 ### Startup functions
@@ -182,6 +183,8 @@ def main(argv=None):
 	elif (tool == 'saopt'): SubaptOptTool(files, params)
 	elif (tool == 'saupd'): SubaptUpdateTool(files, params)
 	elif (tool == 'shifts'): ShiftTool(files, params)
+	elif (tool == 'procshifts'): ProcShiftsTool(files, params)
+	
 	# done
 	log.prNot(log.INFO, "Complete.")
 	return 0
@@ -382,7 +385,7 @@ def check_params(tool, params):
 		 	(params['maskfile']))
 	# File should not exist, find a new file if it does
 	if (params['file']):
-		libfile.saveOldFile(params['file'], postfix='.old', maxold=5)
+		lf.saveOldFile(params['file'], postfix='.old', maxold=5)
 	# Shape should be 'circular' or 'square'
 	if (params['shape'] not in ['square', 'circular']):
 		log.prNot(log.ERROR, "shape invalid, should be 'circular' or 'square'")
@@ -578,7 +581,10 @@ class Tool(object):
 				self.darkdata = N.float32(0.0)
 		if (self.gaindata is None):
 			# Make a gain for faster processing
-			self.gaindata = 1.0/(self.flatdata - self.darkdata)
+			invgain = (self.flatdata - self.darkdata)
+			# Prevent infinity
+			invgain[invgain <= 0] = N.float32(1)
+			self.gaindata = 1.0/invgain
 			#self.gaindata /= N.mean(self.gaindata)
 	
 	
@@ -793,7 +799,7 @@ class SubaptUpdateTool(Tool):
 		(nsa, pos, size) = \
 		 	libsh.loadSaSfConf(self.maskfile)
 		# load offsets
-		off = libfile.loadData(self.offsets, ascsv=True)
+		off = lf.loadData(self.offsets, ascsv=True)
 		
 		# Compare
 		if (off.shape[0] != nsa):
@@ -908,39 +914,29 @@ class ShiftTool(Tool):
 		allshifts = N.array(allshifts)
 		# Store the list of files where we save data to
 		files = {}
-		files['shifts'] = libfile.saveData(self.file + '-shifts', \
-			allshifts, asnpy=True, asfits=True)
-		files['saccdpos'] = libfile.saveData(self.file + '-saccdpos', \
+		files['shifts'] = lf.saveData(self.file + '-shifts', allshifts, \
+		 	asnpy=True, asfits=True)
+		files['saccdpos'] = lf.saveData(self.file + '-saccdpos', \
 		 	self.saccdpos, asnpy=True)
-		files['sfccdpos'] = libfile.saveData(self.file + '-sfccdpos', \
+		files['sfccdpos'] = lf.saveData(self.file + '-sfccdpos', \
 		 	self.sfccdpos, asnpy=True)
-		files['saccdsize'] = libfile.saveData(self.file + '-saccdsize', \
+		files['saccdsize'] = lf.saveData(self.file + '-saccdsize', \
 		 	self.saccdsize, asnpy=True)
-		files['sfccdsize'] = libfile.saveData(self.file + '-sfccdsize', \
+		files['sfccdsize'] = lf.saveData(self.file + '-sfccdsize', \
 		 	self.sfccdsize, asnpy=True)
 		cpos = self.saccdpos.reshape(-1,1,2) + self.sfccdpos.reshape(1,-1,2) + \
 			self.sfccdsize.reshape(1,1,2)/2.0
-		files['sasfpos-c'] = libfile.saveData(self.file + '-sasfpos-c', \
+		files['sasfpos-c'] = lf.saveData(self.file + '-sasfpos-c', \
 		 	cpos, asnpy=True, asfits=True)
-		files['files'] = libfile.saveData(self.file + '-files', \
+		files['files'] = lf.saveData(self.file + '-files', \
 		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')
+		# Add meta info
+		files['path'] os.path.dirname(os.path.realpath(self.file))
+		files['base'] self.file
 		
+		metafile = lf.saveData(self.file + '-meta', files, aspickle=True)
 		# If we have only one subfield, also calculate 'static' shifts
-		if (len(self.sfccdpos) == 1):
-			log.prNot(log.INFO, "Calculating static offsets.")
-			(soff, sofferr) =libsh.procStatShift(allshifts[:,:,:,0,:])
-			files['files'] = libfile.saveData(self.file + '-offset', \
-			 	soff, asnpy=True, ascsv=True)
-			files['files'] = libfile.saveData(self.file + '-offset-err', \
-			 	sofferr, asnpy=True)
-			if (self.plot):
-				import libplot
-				libplot.plotShifts(self.file + '-offset-plot', allshifts, \
-					self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
-					plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=True, \
-					 title='Static offsets for' + self.dataid,  legend=True)
-		
-		libfile.saveData(self.file + '-meta', files, aspickle=True)
+
 
 	
 
@@ -968,8 +964,43 @@ class StatsTool(Tool):
 		allfiles = []
 		for f in self.files:
 			base = os.path.basename(f)
+			# Load file
+			img = self.load(f)
+			if (img is None): 
+				log.prNot(log.DEBUG, "Skipping %s, could not read file." % (base))
+				return False
 			allfiles.append(base)
-			allstats.append(self.dowork(f))
+			# Dark-flat file if needed
+			dfimg = self.darkflat(img)
+			data = dfimg
+			# If a maskfile is given, only calculate stats within the subaperture.
+			if (self.maskfile):
+				size = self.saccdsize
+				substat = []
+				for p in self.saccdpos:
+					_sub = data[\
+						p[1]:p[1]+size[1], \
+						p[0]:p[0]+size[0]]
+					avg = N.mean(_sub)
+					std = N.var(_sub)**0.5
+					rms = (N.sum((_sub-avg)**2.0)/_sub.size)**0.5
+					rmsrat = 100.0*rms/avg
+					substat.append([avg, std, rms, rmsrat])
+				substat = N.mean(N.array(substat), axis=0)
+				log.prNot(log.INFO, "%s: mean: %.4g std: %.4g rms: %.4g (%.3g%%)" % \
+					(base, substat[0], substat[1], substat[2], substat[3]))
+				allstats.append(list(substat))
+			else:
+				# If no maskfile given, calculate stats for all pixels
+				r = (N.min(data), N.max(data))
+				avg = N.mean(data)
+				std = N.var(data)**0.5
+				rms = (N.sum((data-avg)**2.0)/data.size)**0.5
+				rmsrat = 100.0*rms/avg	
+				log.prNot(log.INFO, "%s: mean: %.4g std: %.4g range: %.3g--%.3g rms: %.4g (%.3g%%)" % \
+					(base, avg, std, r[0], r[1], rms, rmsrat))
+				allstats.append([avg, std, rms, rmsrat])
+				
 		
 		# Process stats for all files, display average
 		allstats = N.array(allstats)
@@ -979,52 +1010,12 @@ class StatsTool(Tool):
 		log.prNot(log.INFO, "all %d: mean: %.4g+-%.4g rms: %.4g+-%.4g (%.3g%%+-%.4g)" % \
 			(allstats.shape[0], all_avg[0], all_std[0], all_avg[2], all_std[2], all_avg[3], all_std[3]))
 		# Save results if requested
-		nf = libfile.saveData(self.file + '-stats', allstats, asnpy=True)
+		nf = lf.saveData(self.file + '-stats', allstats, asnpy=True)
 		hdr = ['filename, path=%s' % \
 		 	(os.path.dirname(os.path.realpath(self.files[0]))), 'avg', \
 		 	'std', 'rms', 'fractional rms']
-		cf = libfile.saveData(self.file + '-stats', N.concatenate((allfiles, \
+		cf = lf.saveData(self.file + '-stats', N.concatenate((allfiles, \
 		 	allstats), axis=1), ascsv=True, csvhdr=hdr, csvfmt='%s')
-	
-	
-	def dowork(file):
-		# Load file
-		img = self.load(f)
-		if (img is None): 
-			log.prNot(log.DEBUG, "Skipping %s, could not read file." % (base))
-			return False
-		# Dark-flat file if needed
-		dfimg = self.darkflat(img)
-		data = dfimg
-		# If a maskfile is given, only calculate stats within the subaperture.
-		if (self.maskfile):
-			size = self.saccdsize
-			substat = []
-			for p in self.saccdpos:
-				_sub = data[\
-					p[1]:p[1]+size[1], \
-					p[0]:p[0]+size[0]]
-				avg = N.mean(_sub)
-				std = N.var(_sub)**0.5
-				rms = (N.sum((_sub-avg)**2.0)/_sub.size)**0.5
-				rmsrat = 100.0*rms/avg
-				substat.append([avg, std, rms, rmsrat])
-			substat = N.mean(N.array(substat), axis=0)
-			log.prNot(log.INFO, "%s: mean: %.4g std: %.4g rms: %.4g (%.3g%%)" % \
-				(base, substat[0], substat[1], substat[2], substat[3]))
-			return list(substat)
-		else:
-			# If no maskfile given, calculate stats for all pixels
-			r = (N.min(data), N.max(data))
-			avg = N.mean(data)
-			std = N.var(data)**0.5
-			rms = (N.sum((data-avg)**2.0)/data.size)**0.5
-			rmsrat = 100.0*rms/avg	
-			log.prNot(log.INFO, "%s: mean: %.4g std: %.4g range: %.3g--%.3g rms: %.4g (%.3g%%)" % \
-				(base, avg, std, r[0], r[1], rms, rmsrat))
-			return [avg, std, rms, rmsrat]
-		
-		# done
 	
 
 
@@ -1078,6 +1069,54 @@ class ConvertTool(Tool):
 		
 	
 
+
+
+class ProcShiftsTool(Tool):
+	"""Process shift data"""
+	def __init__(self, files, params):
+		super(ProcShiftsTool, self).__init__(files, params)
+		self.run()
+	
+	
+	def run(self):
+		for f in self.files:
+			# Try to load pickle file
+			log.prNot(log.INFO, "Processing meta file %s" % (f))
+			(data, metafiles) = lf.restoreData(f)
+			# Make sure we have the right data
+			try: sfccdpos = data['sfccdpos']
+			except: log.prNot(log.ERROR, "'sfccdpos' not found in data.")
+			try: saccdpos = data['saccdpos']
+			except: log.prNot(log.ERROR, "'saccdpos' not found in data.")
+			try: sfccdsize = data['sfccdsize']
+			except: log.prNot(log.ERROR, "'sfccdsize' not found in data.")
+			try: saccdsize = data['saccdsize']
+			except: log.prNot(log.ERROR, "'saccdsize' not found in data.")
+			try: allshifts = data['shifts']
+			except: log.prNot(log.ERROR, "'allshifts' not found in data.")
+			
+			# If we have one subfield, treat it as static shift data:
+			if (len(sfccdpos) == 1):
+				log.prNot(log.INFO, "Calculating static offsets.")
+				(soff, sofferr) = libsh.procStatShift(allshifts[:,:,:,0,:])
+				metafiles['offsets'] = lf.saveData(data['base'] + '-offset', \
+			 		soff, asnpy=True, ascsv=True)
+				metafiles['offset-err'] = lf.saveData(data['base'] + '-offset-err', \
+			 		sofferr, asnpy=True, ascsv=True)
+				if (self.plot):
+					import libplot
+					libplot.plotShifts(data['base'] + '-offset-plot', allshifts, \
+						saccdpos, saccdsize, sfccdpos, sfccdsize, \
+						plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=False, \
+					 	title='Static offsets for' + data['base'] +', mag=7', legend=True)	
+			# We have subfield data here, process
+			else:
+				pass
+			
+			# Store the new meta file
+			lf.saveData(f, metafiles, aspickle=True, explicit=True)
+			
+	
 
 ### ==========================================================================
 ### Helper functions
