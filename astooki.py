@@ -34,6 +34,7 @@ Usage: astooki <TOOL> [OPTIONS] [FILES]
 Tools
  convert                     Convert files to another format
  stats                       Get statistics on files
+ shiftoverlay                Overlay image shifts on the raw images
  samask                      Make a subaperture mask
  sfmask                      Make a subfield mask
  saopt                       Optimze a subaperture mask with a flat
@@ -74,6 +75,13 @@ Convert options
 
 Stats options
  -f, --file=FILEPATH         file to store statistics to
+
+Shiftoverlay options
+     --intclip=LOW,HIGH      clip intensity to this range
+     --subap=N               subaperture to process
+     --safile=FILEPATH       subaperture positions
+     --sffile=FILEPATH       subfield positions relative to subap (csv)
+     --shifts=FILEPATH       image shifts file
 
 Samask options
  -f, --file=FILEPATH         file to store subaperture configuration to
@@ -163,7 +171,7 @@ _FORMAT_NPY = 'npy'
 _INFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_NPY)
 _OUTFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_PNG, _FORMAT_NPY)
 # Tools available
-_TOOLS = ('convert', 'stats', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts', 'procshifts')
+_TOOLS = ('convert', 'stats', 'shiftoverlay', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts', 'procshifts')
 
 ### ==========================================================================
 ### Startup functions
@@ -178,6 +186,7 @@ def main(argv=None):
 	log.prNot(log.INFO, "Tool: %s." % tool)
 	if (tool == 'convert'): ConvertTool(files,params)
 	elif (tool == 'stats'): StatsTool(files, params)
+	elif (tool == 'shiftoverlay'): ShiftOverlayTool(files, params)
 	elif (tool == 'samask'): SubaptConfTool(files, params)
 	elif (tool == 'sfmask'): SubfieldConfTool(files, params)
 	elif (tool == 'saopt'): SubaptOptTool(files, params)
@@ -214,7 +223,7 @@ def parse_options():
 	
 	params = get_defaults(tool)
 	
-	opts, args = getopt.getopt(argv[2:], "vhsi:o:f:r:n:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "scale=", "rad=", "shape=", "size=", "pitch=", "xoff=", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets="])
+	opts, args = getopt.getopt(argv[2:], "vhsi:o:f:r:n:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "scale=", "rad=", "shape=", "size=", "pitch=", "xoff=", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts="])
 	# Remaining 'args' must be files
 	files = args
 	
@@ -235,49 +244,37 @@ def parse_options():
 		if option in ["--noplot"]: params['plot'] = False
 		if option in ["-f", "--file"]: params['file'] = os.path.realpath(value)
 		if option in ["--crop"]: params['crop'] = value.split(',')
-	
-	# Parse tool-specific parameters now
-	# ==================================
-	
-	if (tool == 'convert'):
-		for option, value in opts:
-			log.prNot(log.DEBUG, 'Parsing convert: %s:%s' % (option, value))
-			if option in ["-o", "--outformat"]: params['outformat'] = value
-			if option in ["--scale"]: params['scale'] = float(value)
-			if option in ["--intclip"]: params['intclip'] = value.split(',')
-	elif (tool == 'samask'):
-		for option, value in opts:
-			log.prNot(log.DEBUG, 'Parsing samask: %s:%s' % (option, value))
-			if option in ["--rad"]: params['rad'] = float(value)
-			if option in ["--shape"]: params['shape'] = value
-			if option in ["--size"]: params['size'] = value.split(',')
-			if option in ["--pitch"]: params['pitch'] = value.split(',')
-			if option in ["--xoff"]: params['xoff'] = value.split(',')
-			if option in ["--disp"]: params['disp'] = value.split(',')
-			if option in ["--scale"]: params['scale'] = float(value)
-	elif (tool == 'sfmask'):
-		for option, value in opts:
-			log.prNot(log.DEBUG, 'Parsing sfmask: %s:%s' % (option, value))
-			if option in ["--sfsize"]: params['sfsize'] = value.split(',')
-			if option in ["--sasize"]: params['sasize'] = value.split(',')
-			if option in ["--overlap"]: params['overlap'] = value.split(',')
-			if option in ["--border"]: params['border'] = value.split(',')
-	elif (tool == 'saopt'):
-		for option, value in opts:
-			log.prNot(log.DEBUG, 'Parsing saopt: %s:%s' % (option, value))
-			if option in ["--saifac"]: params['saifac'] = float(value)
-			if option in ["--rad"]: params['rad'] = float(value)
-	elif (tool == 'saupd'):
-		for option, value in opts:
-			log.prNot(log.DEBUG, 'Parsing saupd: %s:%s' % (option, value))
-			if option in ["--offsets"]: params['offsets'] = os.path.realpath(value)
-	elif (tool == 'shifts'):
-		for option, value in opts:
-			log.prNot(log.DEBUG, 'Parsing shift: %s:%s' % (option, value))
-			if option in ["-r", "--range"]: params['shrange'] = N.int32(value)
-			if option in ["--safile"]: params['safile'] = os.path.realpath(value)
-			if option in ["--sffile"]: params['sffile'] = os.path.realpath(value)
-			if option in ["-n", "--nref"]: params['nref'] = N.int32(value)
+		# Convert
+		if option in ["-o", "--outformat"]: params['outformat'] = value
+		if option in ["--scale"]: params['scale'] = float(value)
+		if option in ["--intclip"]: params['intclip'] = value.split(',')
+		# ShiftOverlay
+		if option in ["--subap"]: params['subap'] = int(value)
+		if option in ["--shifts"]: params['shifts'] = os.path.realpath(value)
+		# Samask
+		if option in ["--rad"]: params['rad'] = float(value)
+		if option in ["--shape"]: params['shape'] = value
+		if option in ["--size"]: params['size'] = value.split(',')
+		if option in ["--pitch"]: params['pitch'] = value.split(',')
+		if option in ["--xoff"]: params['xoff'] = value.split(',')
+		if option in ["--disp"]: params['disp'] = value.split(',')
+		if option in ["--scale"]: params['scale'] = float(value)
+		# Sfmask
+		if option in ["--sfsize"]: params['sfsize'] = value.split(',')
+		if option in ["--sasize"]: params['sasize'] = value.split(',')
+		if option in ["--overlap"]: params['overlap'] = value.split(',')
+		if option in ["--border"]: params['border'] = value.split(',')
+		# Saopt
+		if option in ["--saifac"]: params['saifac'] = float(value)
+		#if option in ["--rad"]: params['rad'] = float(value)
+		# Saupd
+		if option in ["--offsets"]: params['offsets'] = os.path.realpath(value)
+		# Shifts
+		if option in ["-r", "--range"]: params['shrange'] = N.int32(value)
+		if option in ["--safile"]: params['safile'] = os.path.realpath(value)
+		if option in ["--sffile"]: params['sffile'] = os.path.realpath(value)
+		if option in ["-n", "--nref"]: params['nref'] = N.int32(value)
+		
 	
 	return (tool, params, files)
 
@@ -303,6 +300,9 @@ def get_defaults(tool):
 	default['intclip'] = False
 	default['crop'] = False
 	default['outformat'] = _FORMAT_FITS
+	# ShiftOverlay defaults:
+	default['subap'] = 40
+	default['shifts'] = False
 	# Samask defaults:
 	default['rad'] = 1024
 	default['shape'] = 'circular'
@@ -319,16 +319,11 @@ def get_defaults(tool):
 	default['saifac'] = 0.7
 	# Saupd defaults
 	default['offsets'] = False
-	
 	# Shift defaults
 	default['shrange'] = 7
 	default['safile'] = False
 	default['sffile'] = False
 	default['nref'] = 4
-	
-	# Internal configuration, cannot be changed command-line
-	# pixel offset for any operation within a masked image
-	default['_pix'] = 2
 	
 	return default
 
@@ -431,27 +426,32 @@ def check_params(tool, params):
 		(not os.path.exists(params['offsets'])):
 		log.prNot(log.ERROR, "offset file '%s' does not exist." % \
 		 	(params['offsets']))
-
+		
 	# Requirements depending on tools (where defaults are not sufficient)
 	# ===================================================================
 	if (tool == 'saopt'):
 		# need flatfield, maskfile
-		if (params['flatfield']) and \
-			(not os.path.exists(params['flatfield'])):
+		if (not params['flatfield']) or (not os.path.exists(params['flatfield'])):
 			log.prNot(log.ERROR, "Tool 'saopt' requires flatfield.")
-		if (params['maskfile']) and \
-			(not os.path.exists(params['maskfile'])):
+		if (not params['maskfile']) or (not os.path.exists(params['maskfile'])):
 			log.prNot(log.ERROR, "Tool 'saopt' requires maskfile.")
+	elif (tool == 'shiftoverlay'):
+		if (params['scale'] <= 1.0):
+			log.prNot(log.WARN, "Recommend to set scale to higher than 1.0")
+		if (not params['sffile']) or (not os.path.exists(params['sffile'])):
+			log.prNot(log.ERROR, "Tool 'shiftoverlay' requires sffile.")
+		if (not params['safile']) or (not os.path.exists(params['safile'])):
+			log.prNot(log.ERROR, "Tool 'shiftoverlay' requires safile.")
+		if (not params['shifts']) or (not os.path.exists(params['shifts'])):
+			log.prNot(log.ERROR, "Tool 'shiftoverlay' requires shifts file.")
+		if (not params['subap']):
+			log.prNot(log.ERROR, "Tool 'shiftoverlay' requires subap to use.")
 	elif (tool == 'shifts'):
 		# need safile and sffile
-		if (params['safile']) and \
-			(not os.path.exists(params['safile'])):
-			log.prNot(log.ERROR, "safile '%s' does not exist." % \
-			 	(params['safile']))
-		if (params['sffile']) and \
-			(not os.path.exists(params['sffile'])):
-			log.prNot(log.ERROR, "sffile '%s' does not exist." % \
-			 	(params['sffile']))
+		if (not params['safile']) or (not os.path.exists(params['safile'])):
+			log.prNot(log.ERROR, "Tool 'shifts' requires safile.")
+		if (not params['sffile']) or (not os.path.exists(params['sffile'])):
+			log.prNot(log.ERROR, "Tool 'shifts' requires sffile.")
 	elif (tool == 'sfmask'):
 		# sasize > sfsize, both must be int, int
 		if (params['sasize'] < params['sfsize']).any():
@@ -628,7 +628,7 @@ class Tool(object):
 			scdata = (scdata.astype(N.uint8))
 		else: scdata = data
 		if (scdata.shape[1] % 4 != 0): 
-			raise RuntimeError("Cannot save PNG files with horizontal resolution not a multiple of 4 (cairo bug).")
+			raise RuntimeError("Cannot save PNG with width not a multiple of 4 (cairo bug, width was %d)." % (scdata.shape[1]))
 		
 		import cairo
 		# Create surface from data
@@ -773,6 +773,8 @@ class SubfieldConfTool(Tool):
 		libsh.saveSaSfConf(self.file, totnsf, [-1,-1], self.sfsize, sfpos)
 		if (self.plot):
 			import libplot
+			# TODO: fix this, splitting does not work correctly when files have 
+			# multiple dots (2009.04.05-mask.csv)
 			plfile = os.path.splitext(self.file)[0]+'-plot.eps'
 			libplot.showSaSfLayout(plfile, sfpos, self.sfsize, \
 				plrange=[[0, self.sasize[0]], [0, self.sasize[1]]])
@@ -806,9 +808,10 @@ class SubaptUpdateTool(Tool):
 			log.prNot(log.ERROR, "SubaptUpdateTool(): offsets not the same size as subaperture positions.")
 		
 		# Offset the new positions
-		newpos = (pos + off).astype(N.int32)
+		maxsh = N.ceil(N.max(abs(off), axis=0))
+		newpos = (pos + off + maxsh).astype(N.int32)
 		# Crop the subaperture size by twice the maximum offset
-		newsize = (size - (N.max(off, axis=0)*2)).astype(N.int32)
+		newsize = (size - maxsh*2).astype(N.int32)
 		# Store
 		libsh.saveSaSfConf(self.file, nsa, [-1,-1], newsize, newpos)
 		if (self.plot):
@@ -931,8 +934,8 @@ class ShiftTool(Tool):
 		files['files'] = lf.saveData(self.file + '-files', \
 		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')
 		# Add meta info
-		files['path'] os.path.dirname(os.path.realpath(self.file))
-		files['base'] self.file
+		files['path'] = os.path.dirname(os.path.realpath(self.file))
+		files['base'] = os.path.basename(self.file)
 		
 		metafile = lf.saveData(self.file + '-meta', files, aspickle=True)
 		# If we have only one subfield, also calculate 'static' shifts
@@ -1047,10 +1050,11 @@ class ConvertTool(Tool):
 			if (self.scale != 1.0):
 				import scipy.ndimage
 				sc = self.scale
-				orig = data.shape[0]
-				nsc = (N.round(orig * sc / 8)*8)/orig
-				log.prNot(log.INFO, "Scaling image by approximately %g." % self.scale)
+				orig = data.shape
+				nsc = (N.round(orig[1] * sc / 8) * 8)/orig[1]
 				data = S.ndimage.zoom(data, nsc, mode='wrap')
+				log.prNot(log.INFO, "Scaling image by %g (from %d,%d to %d,%d)." % \
+				 	(nsc, orig[0], orig[1], data.shape[0], data.shape[1]))
 			# Crop intensity if necessary
 			if (self.intclip is not False):
 				log.prNot(log.INFO, "Clipping intensity to %g--%g." % \
@@ -1069,6 +1073,109 @@ class ConvertTool(Tool):
 		
 	
 
+
+class ShiftOverlayTool(Tool):
+	"""Crop out one subaperture, overlay shift vectors, output PNGs"""
+	def __init__(self, files, params):
+		super(ShiftOverlayTool, self).__init__(files, params)
+		self.file = params['file']
+		self.scale = params['scale']
+		self.intclip = params['intclip']
+		self.outformat = params['outformat']
+		# maskfile, subap, sffile, shifts
+		self.subap = params['subap']
+		sffile = params['sffile']
+		safile = params['safile']
+		(nsa, saccdpos, saccdsize) = \
+			libsh.loadSaSfConf(safile)
+		(self.nsf, self.sfccdpos, self.sfccdsize) = \
+			libsh.loadSaSfConf(sffile)
+		self.crop = N.array([saccdpos[self.subap, 0], \
+		 	saccdpos[self.subap, 1], \
+			saccdsize[0], \
+			saccdsize[1]])
+		#self.sfccdposc = sfccdpos + sfccdsize/2.0
+		self.shifts = params['shifts']
+		self.run()
+	
+	
+	def run(self):
+		# Do not plot overlapping subfields
+		plsf = []
+		allpos = []
+		sz = self.sfccdsize
+		for sf in xrange(self.nsf):
+			shpos = self.sfccdpos[sf] * self.scale
+			# Check if subfields don't overlap
+			if (sf != 0 and (abs(N.array(allpos)-shpos.reshape(1,2)) < sz*self.scale).all(axis=1).any()): continue
+			oldpos = shpos			
+			allpos.append(oldpos)
+			plsf.append(sf)
+		log.prNot(log.INFO, "Using subfields:", plsf)
+		plsf = N.array(plsf)
+		# Pre-process shifts
+		shifts = lf.loadData(self.shifts, asnpy=True)
+		shifts = shifts[:,:,self.subap,:,:]
+		notfin = N.argwhere(N.isfinite(shifts) == False)
+		for nfidx in notfin:
+			shifts[tuple(nfidx)] = 0.0
+		shifts = N.mean(shifts, axis=1)
+		log.prNot(log.INFO, "Pre-processing shifts.")
+		for sf in xrange(shifts.shape[1]):
+			avg = N.mean(shifts[:,sf,:],0)
+			shifts[:,sf,:] -= avg.reshape(1,2)
+		# Process files
+		for fidx in xrange(len(self.files)):
+			f = self.files[fidx]			
+			base = os.path.basename(f)
+			log.prNot(log.INFO, "Processing file %d/%d, '%s'" % \
+				(fidx+1, len(self.files), base))
+			img = self.load(f)
+			if (img is None): continue
+			dfimg = self.darkflat(img)
+			data = dfimg / dfimg.mean()
+			if (self.scale != 1.0):
+				import scipy.ndimage
+				sc = self.scale
+				orig = data.shape
+				nsc = (N.round(orig[1] * sc / 8) * 8)/orig[1]
+				data = S.ndimage.zoom(data, nsc, mode='wrap')
+				log.prNot(log.INFO, "Scaling image by %g (from %d,%d to %d,%d)." % \
+				 	(nsc, orig[0], orig[1], data.shape[0], data.shape[1]))
+			# Crop intensity if necessary
+			if (self.intclip is not False):
+				log.prNot(log.INFO, "Clipping intensity to %g--%g." % \
+				 	tuple(self.intclip))
+				data = N.clip(data, self.intclip[0], self.intclip[1])
+			# Add shift vectors, set value at shift vector to max
+			dmax = data.max()
+			dmin = data.min()
+			for sf in plsf:
+				shpos = (self.sfccdpos[sf] - shifts[fidx, sf]) * nsc
+				data[shpos[1]:shpos[1]+(sz[1]*nsc), \
+					shpos[0]] = dmax
+				data[shpos[1]:shpos[1]+(sz[1]*nsc), \
+					shpos[0]+(sz[0]*nsc)] = dmax
+				data[shpos[1]+(sz[1]*nsc), \
+					shpos[0]:shpos[0]+(sz[0]*nsc)] = dmax
+				data[shpos[1], \
+					shpos[0]:shpos[0]+(sz[0]*nsc)] = dmax
+				# This gives a 9 pixel block:
+				# vec = (self.sfccdposc[sf] - shifts[fidx, sf]) * nsc
+				# data[vec[1]-1:vec[1]+2, vec[0]-1:vec[0]+2] = dmax
+				# data[vec[1], vec[0]] = dmin
+			
+			# Save again
+			savefile = f+'-subap%d-shifts.%s' % (self.subap, self.outformat)
+			log.prNot(log.INFO, "Saving '%s' to '%s'." % \
+				(base, os.path.basename(savefile)))
+				
+			if (self.outformat == _FORMAT_PNG): self.pngsave(data, savefile)
+			elif (self.outformat == _FORMAT_FITS): self.fitssave(data, savefile)
+			elif (self.outformat == _FORMAT_ANA): self.anasave(data, savefile)
+			elif (self.outformat == _FORMAT_NPY): self.npysave(data, savefile)
+		
+	
 
 
 class ProcShiftsTool(Tool):
@@ -1095,17 +1202,37 @@ class ProcShiftsTool(Tool):
 			try: allshifts = data['shifts']
 			except: log.prNot(log.ERROR, "'allshifts' not found in data.")
 			
+			# Process NaNs and other non-finite numbers
+			notfin = N.argwhere(N.isfinite(allshifts) == False)
+			notfin_perc = notfin.shape[0]*100./allshifts.size
+			log.prNot(log.INFO, "%d (%.2g%%) non-finite entries, spread over %d frames, %d subaps, %d subfields." % \
+			 	(notfin.shape[0], notfin_perc, N.unique(notfin[:,0]).size, \
+			 	N.unique(notfin[:,2]).size, N.unique(notfin[:,3]).size))
+			#log.prNot(log.INFO, "Worst frame: %d with %d non-finite entries." % \
+			#	N.bincount(notfin[:,0])
+			if (notfin_perc > 0.5):
+				log.prNot(log.WARN, "Percentage of non-finite entries very high!")
+			metafiles['notfinite'] = lf.saveData(data['base'] + '-notfinite', \
+			 	notfin, ascsv=True, asnpy=True)
+			
+			# Make a list of all finite frames by excluding all non-finite frames
+			# NB: does not work properly, throws away too much data. How to repair
+			# NaNs? Why do we get NaNs in the first place?
+			finframes = range(allshifts.shape[0])
+			for i in (N.unique(notfin[:,0]))[::-1]: finframes.pop(i)
+			allshifts_fin = allshifts[finframes]
+			
 			# If we have one subfield, treat it as static shift data:
 			if (len(sfccdpos) == 1):
 				log.prNot(log.INFO, "Calculating static offsets.")
-				(soff, sofferr) = libsh.procStatShift(allshifts[:,:,:,0,:])
+				(soff, sofferr) = libsh.procStatShift(allshifts_fin[:,:,:,0,:])
 				metafiles['offsets'] = lf.saveData(data['base'] + '-offset', \
 			 		soff, asnpy=True, ascsv=True)
 				metafiles['offset-err'] = lf.saveData(data['base'] + '-offset-err', \
 			 		sofferr, asnpy=True, ascsv=True)
 				if (self.plot):
 					import libplot
-					libplot.plotShifts(data['base'] + '-offset-plot', allshifts, \
+					libplot.plotShifts(data['base'] + '-offset-plot', allshifts_fin, \
 						saccdpos, saccdsize, sfccdpos, sfccdsize, \
 						plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=False, \
 					 	title='Static offsets for' + data['base'] +', mag=7', legend=True)	
