@@ -56,6 +56,7 @@ Output formats supported
 
 Common options
  -v, --verbose               increase verbosity
+ -l, --log=FILE              log messages to this file as well
  -h, --help                  show this help
  -s, --stats                 show RMS of each file processed [False]
  -i, --informat=FORMAT       input file-format [ana]
@@ -170,8 +171,11 @@ _FORMAT_PNG = 'png'
 _FORMAT_NPY = 'npy'
 _INFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_NPY)
 _OUTFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_PNG, _FORMAT_NPY)
-# Tools available
+### Tools available
 _TOOLS = ('convert', 'stats', 'shiftoverlay', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts', 'procshifts')
+### Default types to use
+_ftype = N.float64
+_itype = N.int32
 
 ### ==========================================================================
 ### Startup functions
@@ -183,7 +187,7 @@ def main(argv=None):
 	# Sanity check on parameters
 	check_params(tool, params)
 	# Perform action requested
-	log.prNot(log.INFO, "Tool: %s." % tool)
+	log.prNot(log.NOTICE, "Tool: %s." % tool)
 	if (tool == 'convert'): ConvertTool(files,params)
 	elif (tool == 'stats'): StatsTool(files, params)
 	elif (tool == 'shiftoverlay'): ShiftOverlayTool(files, params)
@@ -195,7 +199,7 @@ def main(argv=None):
 	elif (tool == 'procshifts'): ProcShiftsTool(files, params)
 	
 	# done
-	log.prNot(log.INFO, "Complete.")
+	log.prNot(log.NOTICE, "Complete.")
 	return 0
 
 
@@ -223,13 +227,16 @@ def parse_options():
 	
 	params = get_defaults(tool)
 	
-	opts, args = getopt.getopt(argv[2:], "vhsi:o:f:r:n:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "scale=", "rad=", "shape=", "size=", "pitch=", "xoff=", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts="])
+	opts, args = getopt.getopt(argv[2:], "vhsi:o:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "scale=", "rad=", "shape=", "size=", "pitch=", "xoff=", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log="])
 	# Remaining 'args' must be files
 	files = args
 	
 	for option, value in opts:
-		log.prNot(log.DEBUG, 'Parsing common: %s:%s' % (option, value))
+		log.prNot(log.INFO, 'Parsing common: %s:%s' % (option, value))
 		if option in ["-v", "--verbose"]: log.VERBOSITY += 1
+		if option in ["-l", "--log"]: log.LOGFILE = os.path.realpath(value)
+	for option, value in opts:
+		log.prNot(log.INFO, 'Parsing common: %s:%s' % (option, value))
 		if option in ["-h", "--help"]: print_help(tool)
 		if option in ["-s", "--stats"]: params['stats'] = True
 		if option in ["-i", "--informat"]: params['informat'] = value
@@ -347,84 +354,84 @@ def check_params(tool, params):
 	
 	# Check outformat
 	if params['outformat'] not in _OUTFORMATS:
-		log.prNot(log.ERROR, "Unsupported output format '%s'" %(params['outformat']))
+		log.prNot(log.ERR, "Unsupported output format '%s'" %(params['outformat']))
 	# Check informat
 	if params['informat'] not in _INFORMATS:
-		log.prNot(log.ERROR, "Unsupported input format '%s'" % (params['informat']))
+		log.prNot(log.ERR, "Unsupported input format '%s'" % (params['informat']))
 	# Intclip should be (float, float)
 	if (params['intclip'] is not False):
 		try: 
 			tmp = params['intclip'][1]
 			params['intclip'] = N.array(params['intclip'][0:2]).astype(N.float)
-		except: log.prNot(log.ERROR, "intclip invalid, should be <float>,<float>.")
+		except: log.prNot(log.ERR, "intclip invalid, should be <float>,<float>.")
 	# Crop should be (int, int, int, int)
 	if (params['crop'] is not False):
 		try: 
 			tmp = params['crop'][3]
 			params['crop'] = N.array(params['crop'][0:4]).astype(N.float)
-		except: log.prNot(log.ERROR, "crop invalid, should be 4 floats.")
+		except: log.prNot(log.ERR, "crop invalid, should be 4 floats.")
 	# Flatfield must exist
 	if (params['flatfield']) and \
 		(not os.path.exists(params['flatfield'])):
-		log.prNot(log.ERROR, "flatfield '%s' does not exist." % \
+		log.prNot(log.ERR, "flatfield '%s' does not exist." % \
 		 	(params['flatfield']))
 	# Darkfield must exist
 	if (params['darkfield']) and \
 		(not os.path.exists(params['darkfield'])):
-		log.prNot(log.ERROR, "darkfield '%s' does not exist." % \
+		log.prNot(log.ERR, "darkfield '%s' does not exist." % \
 		 	(params['darkfield']))
 	# Makfile needs to exist
 	if (params['maskfile']) and \
 		(not os.path.exists(params['maskfile'])):
-		log.prNot(log.ERROR, "maskfile '%s' does not exist." % \
+		log.prNot(log.ERR, "maskfile '%s' does not exist." % \
 		 	(params['maskfile']))
 	# File should not exist, find a new file if it does
 	if (params['file']):
 		lf.saveOldFile(params['file'], postfix='.old', maxold=5)
 	# Shape should be 'circular' or 'square'
 	if (params['shape'] not in ['square', 'circular']):
-		log.prNot(log.ERROR, "shape invalid, should be 'circular' or 'square'")
+		log.prNot(log.ERR, "shape invalid, should be 'circular' or 'square'")
 	# Size should be (int, int)
 	try: 
 		tmp = params['size'][1]
-		params['size'] = N.array(params['size'][0:2]).astype(N.int32)
-	except: log.prNot(log.ERROR, "size invalid, should be <int>,<int>.")
+		params['size'] = N.array(params['size'][0:2]).astype(N.int)
+	except: log.prNot(log.ERR, "size invalid, should be <int>,<int>.")
 	# pitch should be int, int
 	try: 
 		tmp = params['pitch'][1]
-		params['pitch'] = N.array(params['pitch'][0:2]).astype(N.int32)
-	except: log.prNot(log.ERROR, "pitch invalid, should be <int>,<int>.")
+		params['pitch'] = N.array(params['pitch'][0:2]).astype(N.int)
+	except: log.prNot(log.ERR, "pitch invalid, should be <int>,<int>.")
 	# xoff should be floats
 	try: 
 		tmp = params['xoff'][1]
 		params['xoff'] = N.array(params['xoff'][0:2]).astype(N.float)
-	except: log.prNot(log.ERROR, "xoff invalid, should be <float>,<float>.")
+	except: log.prNot(log.ERR, "xoff invalid, should be <float>,<float>.")
 	# disp should be int, int
-	try: params['disp'] = N.array(params['disp'][0:2]).astype(N.int32)
-	except: log.prNot(log.ERROR, "disp invalid, should be <int>,<int>.")
+	try: params['disp'] = N.array(params['disp'][0:2]).astype(N.int)
+	except: log.prNot(log.ERR, "disp invalid, should be <int>,<int>.")
 	
 	try: 
 		tmp = params['sfsize'][1]
-		params['sfsize'] = N.array(params['sfsize'][0:2]).astype(N.int32)
-	except: log.prNot(log.ERROR, "sfsize invalid, should be <int>,<int>.")
+		params['sfsize'] = N.array(params['sfsize'][0:2]).astype(N.int)
+	except: log.prNot(log.ERR, "sfsize invalid, should be <int>,<int>.")
 	try: 
 		tmp = params['sasize'][1]
-		params['sasize'] = N.array(params['sasize'][0:2]).astype(N.int32)
-	except: log.prNot(log.ERROR, "sasize invalid, should be <int>,<int>.")
+		params['sasize'] = N.array(params['sasize'][0:2]).astype(N.int)
+	except: log.prNot(log.ERR, "sasize invalid, should be <int>,<int>.")
 	try: 
 		tmp = params['overlap'][1]
-		params['overlap'] = N.array(params['overlap'][0:2]).astype(N.float32)
+		params['overlap'] = N.array(params['overlap'][0:2]).astype(N.float)
 	except:
-		log.prNot(log.ERROR, "overlap invalid, should be <float>,<float>.")
+		log.prNot(log.ERR, "overlap invalid, should be <float>,<float>.")
 	try: 
 		tmp = params['border'][1]
-		params['border'] = N.array(params['border'][0:2]).astype(N.int32)
+		params['border'] = N.array(params['border'][0:2]).astype(N.int)
 	except:
-		log.prNot(log.ERROR, "border invalid, should be <int>,<int>.")
+		log.prNot(log.ERR, "border invalid, should be <int>,<int>.")
 	# Offset file needs to exist
 	if (params['offsets']) and \
 		(not os.path.exists(params['offsets'])):
-		log.prNot(log.ERROR, "offset file '%s' does not exist." % \
+		log.prNot(log.ERR, "offset file '%s' does not exist." % \
 		 	(params['offsets']))
 		
 	# Requirements depending on tools (where defaults are not sufficient)
@@ -432,40 +439,40 @@ def check_params(tool, params):
 	if (tool == 'saopt'):
 		# need flatfield, maskfile
 		if (not params['flatfield']) or (not os.path.exists(params['flatfield'])):
-			log.prNot(log.ERROR, "Tool 'saopt' requires flatfield.")
+			log.prNot(log.ERR, "Tool 'saopt' requires flatfield.")
 		if (not params['maskfile']) or (not os.path.exists(params['maskfile'])):
-			log.prNot(log.ERROR, "Tool 'saopt' requires maskfile.")
+			log.prNot(log.ERR, "Tool 'saopt' requires maskfile.")
 	elif (tool == 'shiftoverlay'):
 		if (params['scale'] <= 1.0):
-			log.prNot(log.WARN, "Recommend to set scale to higher than 1.0")
+			log.prNot(log.WARNING, "Recommend to set scale to higher than 1.0")
 		if (not params['sffile']) or (not os.path.exists(params['sffile'])):
-			log.prNot(log.ERROR, "Tool 'shiftoverlay' requires sffile.")
+			log.prNot(log.ERR, "Tool 'shiftoverlay' requires sffile.")
 		if (not params['safile']) or (not os.path.exists(params['safile'])):
-			log.prNot(log.ERROR, "Tool 'shiftoverlay' requires safile.")
+			log.prNot(log.ERR, "Tool 'shiftoverlay' requires safile.")
 		if (not params['shifts']) or (not os.path.exists(params['shifts'])):
-			log.prNot(log.ERROR, "Tool 'shiftoverlay' requires shifts file.")
+			log.prNot(log.ERR, "Tool 'shiftoverlay' requires shifts file.")
 		if (not params['subap']):
-			log.prNot(log.ERROR, "Tool 'shiftoverlay' requires subap to use.")
+			log.prNot(log.ERR, "Tool 'shiftoverlay' requires subap to use.")
 	elif (tool == 'shifts'):
 		# need safile and sffile
 		if (not params['safile']) or (not os.path.exists(params['safile'])):
-			log.prNot(log.ERROR, "Tool 'shifts' requires safile.")
+			log.prNot(log.ERR, "Tool 'shifts' requires safile.")
 		if (not params['sffile']) or (not os.path.exists(params['sffile'])):
-			log.prNot(log.ERROR, "Tool 'shifts' requires sffile.")
+			log.prNot(log.ERR, "Tool 'shifts' requires sffile.")
 	elif (tool == 'sfmask'):
 		# sasize > sfsize, both must be int, int
 		if (params['sasize'] < params['sfsize']).any():
-			log.prNot(log.ERROR, "sasize must be bigger than sfsize.")
+			log.prNot(log.ERR, "sasize must be bigger than sfsize.")
 		if (params['overlap'] > 1).any() or (params['overlap'] < 0).any():
-			log.prNot(log.ERROR, "overlap must be between 0 and 1.")
+			log.prNot(log.ERR, "overlap must be between 0 and 1.")
 	elif (tool == 'saupd'):
 		# Saupd needs maskfile, offset file
 		if (params['maskfile']) and \
 			(not os.path.exists(params['maskfile'])):
-			log.prNot(log.ERROR, "Tool 'saupd' requires maskfile.")
+			log.prNot(log.ERR, "Tool 'saupd' requires maskfile.")
 		if (params['offsets']) and \
 			(not os.path.exists(params['offsets'])):
-			log.prNot(log.ERROR, "Tool 'saupd' requires offsets file.")
+			log.prNot(log.ERR, "Tool 'saupd' requires offsets file.")
 	
 	# Done
 
@@ -496,21 +503,21 @@ class Tool(object):
 		self.plot = params['plot']
 		self.file = params['file']
 		if (self.maskfile):
-			log.prNot(log.DEBUG, "Loading mask files.")
+			log.prNot(log.INFO, "Loading mask files.")
 			(self.nsa, self.saccdpos, self.saccdsize) = \
 			 	libsh.loadSaSfConf(self.maskfile)
 		
 		# This is the dataid, containing the direct parent directory, the base of 
 		# the file, and the range of extensions we have:
 		
-		log.prNot(log.INFO, "Processing %d files" % \
+		log.prNot(log.NOTICE, "Processing %d files" % \
 			(len(self.files)))
 	
 	
 	def load(self, filename):
-		log.prNot(log.DEBUG, "Loading '%s'" % (filename))
+		log.prNot(log.INFO, "Loading '%s'" % (filename))
 		if not os.path.exists(filename):
-			log.prNot(log.WARN, "File '%s' does not exist" % (filename))
+			log.prNot(log.WARNING, "File '%s' does not exist" % (filename))
 			return None
 		# Load data, using different methods depending on type
 		if (self.informat == _FORMAT_ANA):
@@ -520,14 +527,14 @@ class Tool(object):
 		elif (self.informat == _FORMAT_NPY):
 			data = self.__npyload(filename)	
 		else:
-			log.prNot(log.WARN, "Filetype unsupported." % (filename))			
+			log.prNot(log.WARNING, "Filetype unsupported." % (filename))			
 			return None
 		self.origres = data.shape
 		if (self.crop is not False):
 			data = data[self.crop[1]:self.crop[1] + self.crop[3], \
 				self.crop[0]:self.crop[0] + self.crop[2]]
 
-		return data
+		return data.astype(_ftype)
 	
 	
 	def __anaload(self, filename):
@@ -549,7 +556,7 @@ class Tool(object):
 		# Init dark-flat fields
 		if (self.flatfield or self.darkfield):
 			self.__initdarkflat()
-			log.prNot(log.DEBUG, "Dark-flatfielding data. Dark avg: %.4g, gain avg: %.4g" % (N.mean(self.darkdata), N.mean(self.gaindata)))		
+			log.prNot(log.INFO, "Dark-flatfielding data. Dark avg: %.4g, gain avg: %.4g" % (N.mean(self.darkdata), N.mean(self.gaindata)))		
 			# Now process the frame
 			return (data-self.darkdata) * self.gaindata
 		return data
@@ -559,31 +566,29 @@ class Tool(object):
 		# Get flats and darks, if not already present
 		if (self.flatdata is None):
 			if (self.flatfield):
-				log.prNot(log.DEBUG, "Loading flatfield...")
+				log.prNot(log.INFO, "Loading flatfield...")
 				self.flatdata = self.load(self.flatfield)
-				self.flatdata = self.flatdata.astype(N.float32)
 				self.flatdata /= 1.0*self.flatmulti
-				log.prNot(log.DEBUG, "Flatfield average: %.6g" % N.mean(self.flatdata))
+				log.prNot(log.INFO, "Flatfield average: %.6g" % N.mean(self.flatdata))
 			else:
 				# Maybe we don't want flatfielding, in that case set it to 1.0
-				log.prNot(log.DEBUG, "Not flatfielding, setting to 1.0")
-				self.gaindata = N.float32(1.0)
+				log.prNot(log.INFO, "Not flatfielding, setting to 1.0")
+				self.gaindata = 1.0
 		if (self.darkdata is None):
 			if (self.darkfield):
-				log.prNot(log.DEBUG, "Loading darkfield...")
+				log.prNot(log.INFO, "Loading darkfield...")
 				self.darkdata = self.load(self.darkfield)
-				self.darkdata = self.darkdata.astype(N.float32)
 				self.darkdata /= 1.0*self.darkmulti
-				log.prNot(log.DEBUG, "Darkfield average: %.6g" % N.mean(self.darkdata))
+				log.prNot(log.INFO, "Darkfield average: %.6g" % N.mean(self.darkdata))
 			else:
 				# Maybe we don't want darkfielding, in that case set it to 1.0
-				log.prNot(log.DEBUG, "Not darkfielding, setting to 0.0")
-				self.darkdata = N.float32(0.0)
+				log.prNot(log.INFO, "Not darkfielding, setting to 0.0")
+				self.darkdata = 0.0
 		if (self.gaindata is None):
 			# Make a gain for faster processing
 			invgain = (self.flatdata - self.darkdata)
 			# Prevent infinity
-			invgain[invgain <= 0] = N.float32(1)
+			invgain[invgain <= 0] = 1.0
 			self.gaindata = 1.0/invgain
 			#self.gaindata /= N.mean(self.gaindata)
 	
@@ -593,7 +598,7 @@ class Tool(object):
 		Save 'data' as FITS file to 'filepath'.
 		"""
 		import pyfits
-		log.prNot(log.DEBUG, "Tool.fitssave(): Saving data to '%s'." % (filepath))
+		log.prNot(log.INFO, "Tool.fitssave(): Saving data to '%s'." % (filepath))
 		pyfits.writeto(filepath, data, clobber=overwrite)
 	
 	
@@ -602,7 +607,7 @@ class Tool(object):
 		Save 'data' as ANA file to 'filepath'. Can be compressed (default: yes).
 		"""
 		import pyana
-		log.prNot(log.DEBUG, "Tool.anasave(): Saving data to '%s'." % (filepath))
+		log.prNot(log.INFO, "Tool.anasave(): Saving data to '%s'." % (filepath))
 		pyana.fzwrite(filepath, data, compressed)
 	
 	
@@ -610,7 +615,7 @@ class Tool(object):
 		"""
 		Save 'data' as npy file to 'filepath'.
 		"""
-		log.prNot(log.DEBUG, "Tool.npysave(): Saving data to '%s'." % (filepath))
+		log.prNot(log.INFO, "Tool.npysave(): Saving data to '%s'." % (filepath))
 		N.save(data, filepath)
 	
 	
@@ -619,7 +624,7 @@ class Tool(object):
 		Save 'data' as PNG file to 'filepath'. Data can be scaled to full range
 		(default: yes).
 		"""
-		log.prNot(log.DEBUG, "Tool.pngsave(): Saving data to '%s'." % (filepath))
+		log.prNot(log.INFO, "Tool.pngsave(): Saving data to '%s'." % (filepath))
 		if (scale):
 			# Scale the values to 0-255
 			maxval = N.max(data)
@@ -649,7 +654,7 @@ class Tool(object):
 		"""
 		if (self.maskfile is False):
 			return data
-		log.prNot(log.DEBUG, "Masking image if necessary, res: %d,%d" % \
+		log.prNot(log.INFO, "Masking image if necessary, res: %d,%d" % \
 		 	(tuple(self.origres)))
 		self.__initmask(self.origres)
 		data[self.mask == False] = N.min(data[self.mask])
@@ -672,7 +677,7 @@ class Tool(object):
 				data[\
 					p[1]:p[1]+size[1], \
 					p[0]:p[0]+size[0]] /= avg
-				log.prNot(log.DEBUG, "maskimg(): normalizing, avg: %.3g" % (avg))
+				log.prNot(log.INFO, "maskimg(): normalizing, avg: %.3g" % (avg))
 		
 		return data
 	
@@ -680,7 +685,7 @@ class Tool(object):
 	def __initmask(self, res):
 		if (self.mask is None) or (res != self.maskres):
 			# We need to make a new mask here
-			log.prNot(log.DEBUG, "maskimg(): (re-)initializing mask with resolution %d,%d" % (tuple(res)))
+			log.prNot(log.INFO, "maskimg(): (re-)initializing mask with resolution %d,%d" % (tuple(res)))
 			(self.mask, self.maskborder) = \
 				libsh.makeSubaptMask(self.saccdpos, self.saccdsize, res)
 			self.maskres = self.mask.shape
@@ -764,12 +769,12 @@ class SubfieldConfTool(Tool):
 		effpitch = effsize/(nsf+1)
 		
 		sfpos = self.border + \
-			N.indices(nsf, dtype=N.float32).reshape(2,-1).T * effpitch
+			N.indices(nsf, dtype=N.float).reshape(2,-1).T * effpitch
 		sfpos = N.round(sfpos).astype(N.int32)
 		totnsf = N.product(nsf).astype(N.int32)
 		
-		log.prNot(log.INFO, "Found %d x %d subfields." % tuple(nsf))
-		log.prNot(log.INFO, "Size %d,%d" % tuple(self.sfsize))
+		log.prNot(log.NOTICE, "Found %d x %d subfields." % tuple(nsf))
+		log.prNot(log.NOTICE, "Size %d,%d" % tuple(self.sfsize))
 		libsh.saveSaSfConf(self.file, totnsf, [-1,-1], self.sfsize, sfpos)
 		if (self.plot):
 			import libplot
@@ -805,7 +810,7 @@ class SubaptUpdateTool(Tool):
 		
 		# Compare
 		if (off.shape[0] != nsa):
-			log.prNot(log.ERROR, "SubaptUpdateTool(): offsets not the same size as subaperture positions.")
+			log.prNot(log.ERR, "SubaptUpdateTool(): offsets not the same size as subaperture positions.")
 		
 		# Offset the new positions
 		maxsh = N.ceil(N.max(abs(off), axis=0))
@@ -891,34 +896,38 @@ class ShiftTool(Tool):
 		# Process files
 		allshifts = []
 		allfiles = []
+		allrefs = []
 		for f in self.files:
 			base = os.path.basename(f)
-			log.prNot(log.INFO, "Measuring shifts for %s." % (base))
+			log.prNot(log.NOTICE, "Measuring shifts for %s." % (base))
 			# Load file
 			img = self.load(f)
 			if (img is None): 
-				log.prNot(log.DEBUG, "Skipping %s, could not read file." % (base))
+				log.prNot(log.INFO, "Skipping %s, could not read file." % (base))
 				continue
 			allfiles.append(base)
 			# Dark-flat file if needed
 			dfimg = self.darkflat(img)
 			
 			# Measure shift
+			refaps = []
 			imgshifts = ls.calcShifts(dfimg, self.saccdpos, self.saccdsize, \
 			 	self.sfccdpos, self.sfccdsize, method=ls.COMPARE_ABSDIFFSQ, \
 			 	extremum=ls.EXTREMUM_2D9PTSQ, refmode=ls.REF_BESTRMS, \
 			 	refopt=self.nref, shrange=[self.shrange, self.shrange], \
-			 	subfields=None, corrmaps=None)
-			
+			 	subfields=None, corrmaps=None, refaps=refaps)
+			allrefs.append(refaps)
 			allshifts.append(imgshifts)
 		
 		# Process results, store to disk
-		log.prNot(log.INFO, "Done, saving results to disk @ '%s'." % (self.file))
+		log.prNot(log.NOTICE, "Done, saving results to disk @ '%s'." % (self.file))
 		allshifts = N.array(allshifts)
 		# Store the list of files where we save data to
 		files = {}
 		files['shifts'] = lf.saveData(self.file + '-shifts', allshifts, \
 		 	asnpy=True, asfits=True)
+		files['refaps'] = lf.saveData(self.file + '-refaps', allrefs, \
+		 	asnpy=True, ascsv=True)
 		files['saccdpos'] = lf.saveData(self.file + '-saccdpos', \
 		 	self.saccdpos, asnpy=True)
 		files['sfccdpos'] = lf.saveData(self.file + '-sfccdpos', \
@@ -970,7 +979,7 @@ class StatsTool(Tool):
 			# Load file
 			img = self.load(f)
 			if (img is None): 
-				log.prNot(log.DEBUG, "Skipping %s, could not read file." % (base))
+				log.prNot(log.INFO, "Skipping %s, could not read file." % (base))
 				return False
 			allfiles.append(base)
 			# Dark-flat file if needed
@@ -990,7 +999,7 @@ class StatsTool(Tool):
 					rmsrat = 100.0*rms/avg
 					substat.append([avg, std, rms, rmsrat])
 				substat = N.mean(N.array(substat), axis=0)
-				log.prNot(log.INFO, "%s: mean: %.4g std: %.4g rms: %.4g (%.3g%%)" % \
+				log.prNot(log.NOTICE, "%s: mean: %.4g std: %.4g rms: %.4g (%.3g%%)" % \
 					(base, substat[0], substat[1], substat[2], substat[3]))
 				allstats.append(list(substat))
 			else:
@@ -1000,7 +1009,7 @@ class StatsTool(Tool):
 				std = N.var(data)**0.5
 				rms = (N.sum((data-avg)**2.0)/data.size)**0.5
 				rmsrat = 100.0*rms/avg	
-				log.prNot(log.INFO, "%s: mean: %.4g std: %.4g range: %.3g--%.3g rms: %.4g (%.3g%%)" % \
+				log.prNot(log.NOTICE, "%s: mean: %.4g std: %.4g range: %.3g--%.3g rms: %.4g (%.3g%%)" % \
 					(base, avg, std, r[0], r[1], rms, rmsrat))
 				allstats.append([avg, std, rms, rmsrat])
 				
@@ -1010,7 +1019,7 @@ class StatsTool(Tool):
 		allfiles = (N.array(allfiles)).reshape(-1,1)
 		all_avg = N.mean(allstats, axis=0)
 		all_std = (N.var(allstats, axis=0))**0.5
-		log.prNot(log.INFO, "all %d: mean: %.4g+-%.4g rms: %.4g+-%.4g (%.3g%%+-%.4g)" % \
+		log.prNot(log.NOTICE, "all %d: mean: %.4g+-%.4g rms: %.4g+-%.4g (%.3g%%+-%.4g)" % \
 			(allstats.shape[0], all_avg[0], all_std[0], all_avg[2], all_std[2], all_avg[3], all_std[3]))
 		# Save results if requested
 		nf = lf.saveData(self.file + '-stats', allstats, asnpy=True)
@@ -1038,7 +1047,7 @@ class ConvertTool(Tool):
 		# Process files
 		for f in self.files:
 			base = os.path.basename(f)
-			log.prNot(log.INFO, "Converting file '%s' to %s" % (base, \
+			log.prNot(log.NOTICE, "Converting file '%s' to %s" % (base, \
 			 	self.outformat))
 			# Load file
 			img = self.load(f)
@@ -1053,17 +1062,17 @@ class ConvertTool(Tool):
 				orig = data.shape
 				nsc = (N.round(orig[1] * sc / 8) * 8)/orig[1]
 				data = S.ndimage.zoom(data, nsc, mode='wrap')
-				log.prNot(log.INFO, "Scaling image by %g (from %d,%d to %d,%d)." % \
+				log.prNot(log.NOTICE, "Scaling image by %g (from %d,%d to %d,%d)." % \
 				 	(nsc, orig[0], orig[1], data.shape[0], data.shape[1]))
 			# Crop intensity if necessary
 			if (self.intclip is not False):
-				log.prNot(log.INFO, "Clipping intensity to %g--%g." % \
+				log.prNot(log.NOTICE, "Clipping intensity to %g--%g." % \
 				 	tuple(self.intclip))
 				data = N.clip(data, self.intclip[0], self.intclip[1])
 			# Save again
 			if (len(self.files) == 1 and self.file): savefile = self.file
 			else: savefile = f+'.'+self.outformat
-			log.prNot(log.INFO, "Saving '%s' as %s in '%s'." % \
+			log.prNot(log.NOTICE, "Saving '%s' as %s in '%s'." % \
 				(base, self.outformat, os.path.basename(savefile)))
 				
 			if (self.outformat == _FORMAT_PNG): self.pngsave(data, savefile)
@@ -1111,7 +1120,7 @@ class ShiftOverlayTool(Tool):
 			oldpos = shpos			
 			allpos.append(oldpos)
 			plsf.append(sf)
-		log.prNot(log.INFO, "Using subfields:", plsf)
+		log.prNot(log.NOTICE, "Using %d subfields: %s" % (len(plsf), str(plsf)))
 		plsf = N.array(plsf)
 		# Pre-process shifts
 		shifts = lf.loadData(self.shifts, asnpy=True)
@@ -1120,7 +1129,7 @@ class ShiftOverlayTool(Tool):
 		for nfidx in notfin:
 			shifts[tuple(nfidx)] = 0.0
 		shifts = N.mean(shifts, axis=1)
-		log.prNot(log.INFO, "Pre-processing shifts.")
+		log.prNot(log.NOTICE, "Pre-processing shifts.")
 		for sf in xrange(shifts.shape[1]):
 			avg = N.mean(shifts[:,sf,:],0)
 			shifts[:,sf,:] -= avg.reshape(1,2)
@@ -1128,7 +1137,7 @@ class ShiftOverlayTool(Tool):
 		for fidx in xrange(len(self.files)):
 			f = self.files[fidx]			
 			base = os.path.basename(f)
-			log.prNot(log.INFO, "Processing file %d/%d, '%s'" % \
+			log.prNot(log.NOTICE, "Processing file %d/%d, '%s'" % \
 				(fidx+1, len(self.files), base))
 			img = self.load(f)
 			if (img is None): continue
@@ -1140,11 +1149,11 @@ class ShiftOverlayTool(Tool):
 				orig = data.shape
 				nsc = (N.round(orig[1] * sc / 8) * 8)/orig[1]
 				data = S.ndimage.zoom(data, nsc, mode='wrap')
-				log.prNot(log.INFO, "Scaling image by %g (from %d,%d to %d,%d)." % \
+				log.prNot(log.NOTICE, "Scaling image by %g (from %d,%d to %d,%d)." % \
 				 	(nsc, orig[0], orig[1], data.shape[0], data.shape[1]))
 			# Crop intensity if necessary
 			if (self.intclip is not False):
-				log.prNot(log.INFO, "Clipping intensity to %g--%g." % \
+				log.prNot(log.NOTICE, "Clipping intensity to %g--%g." % \
 				 	tuple(self.intclip))
 				data = N.clip(data, self.intclip[0], self.intclip[1])
 			# Add shift vectors, set value at shift vector to max
@@ -1167,7 +1176,7 @@ class ShiftOverlayTool(Tool):
 			
 			# Save again
 			savefile = f+'-subap%d-shifts.%s' % (self.subap, self.outformat)
-			log.prNot(log.INFO, "Saving '%s' to '%s'." % \
+			log.prNot(log.NOTICE, "Saving '%s' to '%s'." % \
 				(base, os.path.basename(savefile)))
 				
 			if (self.outformat == _FORMAT_PNG): self.pngsave(data, savefile)
@@ -1188,30 +1197,30 @@ class ProcShiftsTool(Tool):
 	def run(self):
 		for f in self.files:
 			# Try to load pickle file
-			log.prNot(log.INFO, "Processing meta file %s" % (f))
+			log.prNot(log.NOTICE, "Processing meta file %s" % (f))
 			(data, metafiles) = lf.restoreData(f)
 			# Make sure we have the right data
 			try: sfccdpos = data['sfccdpos']
-			except: log.prNot(log.ERROR, "'sfccdpos' not found in data.")
+			except: log.prNot(log.ERR, "'sfccdpos' not found in data.")
 			try: saccdpos = data['saccdpos']
-			except: log.prNot(log.ERROR, "'saccdpos' not found in data.")
+			except: log.prNot(log.ERR, "'saccdpos' not found in data.")
 			try: sfccdsize = data['sfccdsize']
-			except: log.prNot(log.ERROR, "'sfccdsize' not found in data.")
+			except: log.prNot(log.ERR, "'sfccdsize' not found in data.")
 			try: saccdsize = data['saccdsize']
-			except: log.prNot(log.ERROR, "'saccdsize' not found in data.")
+			except: log.prNot(log.ERR, "'saccdsize' not found in data.")
 			try: allshifts = data['shifts']
-			except: log.prNot(log.ERROR, "'allshifts' not found in data.")
+			except: log.prNot(log.ERR, "'allshifts' not found in data.")
 			
 			# Process NaNs and other non-finite numbers
 			notfin = N.argwhere(N.isfinite(allshifts) == False)
 			notfin_perc = notfin.shape[0]*100./allshifts.size
-			log.prNot(log.INFO, "%d (%.2g%%) non-finite entries, spread over %d frames, %d subaps, %d subfields." % \
+			log.prNot(log.NOTICE, "%d (%.2g%%) non-finite entries, spread over %d frames, %d subaps, %d subfields." % \
 			 	(notfin.shape[0], notfin_perc, N.unique(notfin[:,0]).size, \
 			 	N.unique(notfin[:,2]).size, N.unique(notfin[:,3]).size))
-			#log.prNot(log.INFO, "Worst frame: %d with %d non-finite entries." % \
+			#log.prNot(log.NOTICE, "Worst frame: %d with %d non-finite entries." % \
 			#	N.bincount(notfin[:,0])
 			if (notfin_perc > 0.5):
-				log.prNot(log.WARN, "Percentage of non-finite entries very high!")
+				log.prNot(log.WARNING, "Percentage of non-finite entries very high!")
 			metafiles['notfinite'] = lf.saveData(data['base'] + '-notfinite', \
 			 	notfin, ascsv=True, asnpy=True)
 			
@@ -1224,7 +1233,7 @@ class ProcShiftsTool(Tool):
 			
 			# If we have one subfield, treat it as static shift data:
 			if (len(sfccdpos) == 1):
-				log.prNot(log.INFO, "Calculating static offsets.")
+				log.prNot(log.NOTICE, "Calculating static offsets.")
 				(soff, sofferr) = libsh.procStatShift(allshifts_fin[:,:,:,0,:])
 				metafiles['offsets'] = lf.saveData(data['base'] + '-offset', \
 			 		soff, asnpy=True, ascsv=True)
