@@ -14,9 +14,8 @@ license versions 3.0 or higher, see
 http://creativecommons.org/licenses/by-sa/3.0/
 """
 
-import sys
+import sys, os, time
 import getopt
-import os
 import numpy as N
 import scipy as S
 import libsh
@@ -79,19 +78,21 @@ Stats options
 
 Shiftoverlay options
      --intclip=LOW,HIGH      clip intensity to this range
-     --subap=N               subaperture to process
+     --subap=SA1,SA2,...     subapertures to process, set to -1 for all.
      --safile=FILEPATH       subaperture positions
      --sffile=FILEPATH       subfield positions relative to subap (csv)
      --shifts=FILEPATH       image shifts file
+     --shape=[box,dot]       shape to indicate the shifts with
+     --skip=INT              skip this many entries in shifts file
 
 Samask options
  -f, --file=FILEPATH         file to store subaperture configuration to
      --rad=RAD               radius of the subaperture pattern [1024]
      --shape=SHAPE           pattern shape (circular or square) [circular]
-     --size=X,Y              size of the subapertures
+     --sasize=X,Y            size of the subapertures
      --pitch=X,Y             pitch of the subapertures
      --xoff=EVENOFF,ODDOFF   x-offset for subapertures in even, odd rows in
-                               units of --size [0, 0.5]
+                               units of --sasize [0, 0.5]
      --disp=X,Y              global pattern offset [0,0]
      --scale=SCALE           global pattern scaling factor [1.0]
      --[no]plot              make a plot of the subaperture mask [yes]
@@ -146,22 +147,35 @@ Examples
    --file wfwfs_test_im27Apr2009-shifts wfwfs_test_im27Apr2009.0000{1,2}??
 
  Updating subaperture positions:
- astooki.py saupd -vv --plot --mf 2009.04.22-mask.csv --offset offset-csv.csv
+   astooki.py saupd -vv --plot --mf 2009.04.22-mask.csv --offset \\
+   offset-csv.csv
 
  Making a subfield mask with 16x16 pix subfields and 0.5 overlap on each side:
- astooki.py sfmask -vv --plot --file 'subfieldmask.csv' --sfsize=16,16 \\
+   astooki.py sfmask -vv --plot --file 'subfieldmask.csv' --sfsize=16,16 \\
    --sasize=165,139 --overlap=0.5,0.5 --border=6,6
 
  Subfield shift measurement using the above corrected subimage positions and
  subfields:
- astooki.py shifts -vv --ff *ff*1001 --fm=500 --df ../2009.04.22/*dd*1995 \\
+   astooki.py shifts -vv --ff *ff*1001 --fm=500 --df ../2009.04.22/*dd*1995 \\
    --dm=500 --safile proc/2009.04.22-mask-updated.csv --sffile \\
    proc/2009.04.27-subfieldmask.csv --range 6 --nref 2 \\
    wfwfs_test_im27Apr2009.000020?
 
  Convert numpy data to fits format:
- astooki.py convert -vvv --informat npy --outformat fits \\
+   astooki.py convert -vvv --informat npy --outformat fits \\
    2009.04.27_wfwfs_test_im27Apr2009_200-209-shifts.npy
+ 
+ Overlay shift vectors on raw data:
+ N.B. Make sure the order of files correspond with the order of shifts, i.e. 
+ entry N in the shifts file must correspond with file N in the file list!
+   astooki.py shiftoverlay -vv --shape box --scale 1.471 --outformat png \\
+   --intclip=0.85,1.15 --subap 61  --safile \\
+   ../2009.04.28-run01/proc/2009.04.28-mask-updated.csv --sffile \\
+   ../2009.04.28-run01/proc/2009.04.28-subfield-24x24.csv --shifts \\
+   proc/subshift2/2009.04.28-run01_wfwfs_test_im28Apr2009_3-1002-shifts.npy \\
+   --ff ../2009.04.28-flats/wfwfs_test_ff28Apr2009.0000002 --fm 500 --df \\
+   ../2009.04.28-darks/wfwfs_test_dd28Apr2009.0000002 --dm 500 \\
+   wfwfs_test_im28Apr2009.0000*
 ''' % (VERSION, DATE, AUTHOR)
 
 ### Supported formats
@@ -187,7 +201,8 @@ def main(argv=None):
 	(tool, params, files) = parse_options()
 	# Sanity check on parameters
 	check_params(tool, params)
-	log.prNot(log.NOTICE, "Command: '%s'" % (str(sys.argv)))
+	log.prNot(log.NOTICE, "Parameters: '%s'" % (str(params)))
+	log.prNot(log.NOTICE, "Files prefix: '%s'" % (os.path.commonprefix(files)))
 	# Perform action requested
 	log.prNot(log.NOTICE, "Tool: %s." % tool)
 	if (tool == 'convert'): ConvertTool(files,params)
@@ -202,7 +217,7 @@ def main(argv=None):
 	
 	# done
 	dur = time.time() - beg
-	log.prNot(log.NOTICE, "Complete, processed %d frames in %d seconds (%.3gfps)" % (len(files), dur, len(files)/dur))
+	log.prNot(log.NOTICE, "Complete, processed %d files in %d seconds (%.3gfps)" % (len(files), dur, len(files)/dur))
 	return 0
 
 
@@ -223,24 +238,22 @@ def parse_options():
 		print >> sys.stderr, "\t for help use --help"
 		sys.exit(2)
 	
-		
-	
 	# Parse common options first
 	# ==========================
 	
 	params = get_defaults(tool)
 	
-	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "size=", "pitch=", "xoff=", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log="])
+	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "pitch=", "xoff=", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log=", "skip="])
 	# Remaining 'args' must be files
 	files = args
 	
 	for option, value in opts:
 		log.prNot(log.INFO, 'Parsing: %s:%s' % (option, value))
 		if option in ["-v", "--verbose"]: log.VERBOSITY += 1
-		if option in ["-l", "--log"]: log.LOGFILE = os.path.realpath(value)
+		if option in ["-l", "--log"]: params['logfile'] = os.path.realpath(value)
 	for option, value in opts:
 		log.prNot(log.INFO, 'Parsing: %s:%s' % (option, value))
-		if option in ["-d", "--dir"]: params['stats'] = os.path.realpath(value)
+		if option in ["-d", "--dir"]: params['outdir'] = os.path.realpath(value)
 		if option in ["-h", "--help"]: print_help(tool)
 		if option in ["-s", "--stats"]: params['stats'] = True
 		if option in ["-i", "--informat"]: params['informat'] = value
@@ -260,12 +273,14 @@ def parse_options():
 		if option in ["--scale"]: params['scale'] = float(value)
 		if option in ["--intclip"]: params['intclip'] = value.split(',')
 		# ShiftOverlay
-		if option in ["--subap"]: params['subap'] = int(value)
+		if option in ["--subap"]: params['subap'] = value.split(',')
 		if option in ["--shifts"]: params['shifts'] = os.path.realpath(value)
+		if option in ["--shape"]: params['shape'] = value
+		if option in ["--skip"]: params['skip'] = int(value)
 		# Samask
 		if option in ["--rad"]: params['rad'] = float(value)
 		if option in ["--shape"]: params['shape'] = value
-		if option in ["--size"]: params['size'] = value.split(',')
+		#if option in ["--size"]: params['size'] = value.split(',')
 		if option in ["--pitch"]: params['pitch'] = value.split(',')
 		if option in ["--xoff"]: params['xoff'] = value.split(',')
 		if option in ["--disp"]: params['disp'] = value.split(',')
@@ -296,6 +311,7 @@ def get_defaults(tool):
 	"""
 	default = {}
 	# Common defaults
+	default['logfile'] = 'astooki-log'
 	default['flatfield'] = False
 	default['flatmulti'] = 1
 	default['darkfield'] = False
@@ -306,36 +322,38 @@ def get_defaults(tool):
 	default['informat'] = _FORMAT_ANA
 	default['file'] = False
 	default['plot'] = False
-	default['outdir'] = os.path.realpath('astooki-out')
-	# Convert defaults:
-	default['scale'] = 1.0
-	default['intclip'] = False
+	default['outdir'] = os.path.realpath('astooki-out/')
 	default['crop'] = False
-	default['outformat'] = _FORMAT_FITS
-	# ShiftOverlay defaults:
-	default['subap'] = 40
-	default['shifts'] = False
-	# Samask defaults:
-	default['rad'] = 1024
-	default['shape'] = 'circular'
-	default['size'] = ['128','128']
-	default['pitch'] = ['164','164']
-	default['xoff'] = ['0', '0.5']
-	default['disp'] = ['0','0']
-	# sfmask defaults
-	default['sfsize'] = ['16', '16']
-	default['sasize'] = ['0', '0']
-	default['overlap'] = ['0.5', '0.5']
-	default['border'] = ['6', '6']
-	# Saopt defaults
-	default['saifac'] = 0.7
-	# Saupd defaults
-	default['offsets'] = False
-	# Shift defaults
-	default['shrange'] = 7
-	default['safile'] = False
-	default['sffile'] = False
-	default['nref'] = 4
+	if (tool == 'convert'):
+		default['scale'] = 1.0
+		default['intclip'] = False
+		default['outformat'] = _FORMAT_FITS
+	elif (tool == 'shiftoverlay'):
+		default['subap'] = ['-1']
+		default['shifts'] = False
+		default['shape'] = 'box'
+		default['skip'] = 0
+	elif (tool == 'samask'):
+		default['rad'] = 1024
+		default['shape'] = 'circular'
+		default['sasize'] = ['128','128']
+		default['pitch'] = ['164','164']
+		default['xoff'] = ['0', '0.5']
+		default['disp'] = ['0','0']
+	elif (tool == 'sfmask'):
+		default['sfsize'] = ['16', '16']
+		default['sasize'] = ['0', '0']
+		default['overlap'] = ['0.5', '0.5']
+		default['border'] = ['6', '6']
+	elif (tool == 'saopt'):
+		default['saifac'] = 0.7
+	elif (tool == 'saupd'):
+		default['offsets'] = False
+	elif (tool == 'shifts'):
+		default['shrange'] = 7
+		default['safile'] = False
+		default['sffile'] = False
+		default['nref'] = 4
 	
 	return default
 
@@ -353,95 +371,80 @@ def check_params(tool, params):
 		print >> sys.stderr, os.path.basename(sys.argv[0]) + ": Tool '%s' not available." % (tool)
 		print >> sys.stderr, "\t for help use --help"
 		sys.exit(2)
+		
+	# First fix log-related things
+	# ===================================================================
+	if (not os.path.isdir(params['outdir'])): os.makedirs(params['outdir'])
+	log.initLogFile(os.path.join(params['outdir'], params['logfile']))
 	
 	# Common options requirements
 	# ===================================================================
-	# Output dir must exist
-	if (params['outdir']) and 
-		(not os.path.isdir(params['outdir'])):
-		os.makedirs(params['outdir'])
-	# Check outformat
-	if params['outformat'] not in _OUTFORMATS:
-		log.prNot(log.ERR, "Unsupported output format '%s'" %(params['outformat']))
-	# Check informat
 	if params['informat'] not in _INFORMATS:
 		log.prNot(log.ERR, "Unsupported input format '%s'" % (params['informat']))
-	# Intclip should be (float, float)
-	if (params['intclip'] is not False):
-		try: 
-			tmp = params['intclip'][1]
-			params['intclip'] = N.array(params['intclip'][0:2]).astype(N.float)
+	
+	if (params.has_key('intclip') and params['intclip'] is not False):
+		try: params['intclip'] = N.array(params['intclip']).astype(N.float)[[0,1]]
 		except: log.prNot(log.ERR, "intclip invalid, should be <float>,<float>.")
-	# Crop should be (int, int, int, int)
-	if (params['crop'] is not False):
-		try: 
-			tmp = params['crop'][3]
-			params['crop'] = N.array(params['crop'][0:4]).astype(N.float)
+	
+	if (params.has_key('crop') and params['crop'] is not False):
+		try: params['crop'] = N.array(params['crop']).astype(N.float)[[0,1,2,3]]
 		except: log.prNot(log.ERR, "crop invalid, should be 4 floats.")
-	# Flatfield must exist
-	if (params['flatfield']) and \
-		(not os.path.exists(params['flatfield'])):
-		log.prNot(log.ERR, "flatfield '%s' does not exist." % \
-		 	(params['flatfield']))
-	# Darkfield must exist
-	if (params['darkfield']) and \
-		(not os.path.exists(params['darkfield'])):
+	
+	if (params['flatfield']) and (not os.path.exists(params['flatfield'])):
+			log.prNot(log.ERR, "flatfield '%s' does not exist." % \
+		 		(params['flatfield']))
+	
+	if (params['darkfield']) and (not os.path.exists(params['darkfield'])):
 		log.prNot(log.ERR, "darkfield '%s' does not exist." % \
 		 	(params['darkfield']))
-	# Makfile needs to exist
-	if (params['maskfile']) and \
-		(not os.path.exists(params['maskfile'])):
+	
+	if (params['maskfile']) and (not os.path.exists(params['maskfile'])):
 		log.prNot(log.ERR, "maskfile '%s' does not exist." % \
 		 	(params['maskfile']))
-	# File should not exist, find a new file if it does
-	if (params['file']):
-		lf.saveOldFile(params['file'], postfix='.old', maxold=5)
-	# Shape should be 'circular' or 'square'
-	if (params['shape'] not in ['square', 'circular']):
-		log.prNot(log.ERR, "shape invalid, should be 'circular' or 'square'")
-	# Size should be (int, int)
-	try: 
-		tmp = params['size'][1]
-		params['size'] = N.array(params['size'][0:2]).astype(N.int)
-	except: log.prNot(log.ERR, "size invalid, should be <int>,<int>.")
-	# pitch should be int, int
-	try: 
-		tmp = params['pitch'][1]
-		params['pitch'] = N.array(params['pitch'][0:2]).astype(N.int)
-	except: log.prNot(log.ERR, "pitch invalid, should be <int>,<int>.")
-	# xoff should be floats
-	try: 
-		tmp = params['xoff'][1]
-		params['xoff'] = N.array(params['xoff'][0:2]).astype(N.float)
-	except: log.prNot(log.ERR, "xoff invalid, should be <float>,<float>.")
-	# disp should be int, int
-	try: params['disp'] = N.array(params['disp'][0:2]).astype(N.int)
-	except: log.prNot(log.ERR, "disp invalid, should be <int>,<int>.")
 	
-	try: 
-		tmp = params['sfsize'][1]
-		params['sfsize'] = N.array(params['sfsize'][0:2]).astype(N.int)
-	except: log.prNot(log.ERR, "sfsize invalid, should be <int>,<int>.")
-	try: 
-		tmp = params['sasize'][1]
-		params['sasize'] = N.array(params['sasize'][0:2]).astype(N.int)
-	except: log.prNot(log.ERR, "sasize invalid, should be <int>,<int>.")
-	try: 
-		tmp = params['overlap'][1]
-		params['overlap'] = N.array(params['overlap'][0:2]).astype(N.float)
-	except:
-		log.prNot(log.ERR, "overlap invalid, should be <float>,<float>.")
-	try: 
-		tmp = params['border'][1]
-		params['border'] = N.array(params['border'][0:2]).astype(N.int)
-	except:
-		log.prNot(log.ERR, "border invalid, should be <int>,<int>.")
-	# Offset file needs to exist
-	if (params['offsets']) and \
-		(not os.path.exists(params['offsets'])):
-		log.prNot(log.ERR, "offset file '%s' does not exist." % \
-		 	(params['offsets']))
-		
+	if (params.has_key('file') and params['file']):
+		lf.saveOldFile(params['file'], postfix='.old', maxold=5)
+	
+	if params.has_key('pitch'):
+		try: params['pitch'] = N.array(params['pitch']).astype(N.int)[[0,1]]
+		except: log.prNot(log.ERR, "pitch invalid, should be <int>,<int>.")
+	
+	if params.has_key('xoff'):
+		try: params['xoff'] = N.array(params['xoff']).astype(N.float)[[0,1]]
+		except: log.prNot(log.ERR, "xoff invalid, should be <float>,<float>.")
+	
+	if params.has_key('disp'):
+		try: params['disp'] = N.array(params['disp']).astype(N.int)[[0,1]]
+		except: log.prNot(log.ERR, "disp invalid, should be <int>,<int>.")
+	
+	if params.has_key('sfsize'):
+		try: params['sfsize'] = N.array(params['sfsize']).astype(N.int)[[0,1]]
+		except: log.prNot(log.ERR, "sfsize invalid, should be <int>,<int>.")
+	
+	if params.has_key('sasize'):
+		try: params['sasize'] = N.array(params['sasize']).astype(N.int)[[0,1]]
+		except: log.prNot(log.ERR, "sasize invalid, should be <int>,<int>.")
+	
+	if params.has_key('overlap'):
+		try: params['overlap'] = N.array(params['overlap']).astype(N.float)[[0,1]]
+		except: log.prNot(log.ERR, "overlap invalid, should be <float>,<float>.")
+	
+	if params.has_key('border'):
+		try: params['border'] = N.array(params['border']).astype(N.int)[[0,1]]
+		except: log.prNot(log.ERR, "border invalid, should be <int>,<int>.")
+	
+	if params.has_key('subap'):
+		try: params['subap'] = N.array(params['subap']).astype(N.int)
+		except: log.prNot(log.ERR, "subap invalid, should be list of ints.")
+	
+	if params.has_key('offsets'):	
+		if params['offsets'] and not os.path.exists(params['offsets']):
+			log.prNot(log.ERR, "offset file '%s' does not exist." % \
+		 		(params['offsets']))
+	
+	if params.has_key('outformat') and (params['outformat'] not in _OUTFORMATS):
+		log.prNot(log.ERR, "Unsupported output '%s'" % (params['outformat']))
+	
 	# Requirements depending on tools (where defaults are not sufficient)
 	# ===================================================================
 	if (tool == 'saopt'):
@@ -459,14 +462,18 @@ def check_params(tool, params):
 			log.prNot(log.ERR, "Tool 'shiftoverlay' requires safile.")
 		if (not params['shifts']) or (not os.path.exists(params['shifts'])):
 			log.prNot(log.ERR, "Tool 'shiftoverlay' requires shifts file.")
-		if (not params['subap']):
-			log.prNot(log.ERR, "Tool 'shiftoverlay' requires subap to use.")
+		if (params['shape'] not in ['box', 'dot']):
+			log.prNot(log.ERR, "'shape' should be in ['box', 'dot'].")
 	elif (tool == 'shifts'):
 		# need safile and sffile
 		if (not params['safile']) or (not os.path.exists(params['safile'])):
 			log.prNot(log.ERR, "Tool 'shifts' requires safile.")
 		if (not params['sffile']) or (not os.path.exists(params['sffile'])):
 			log.prNot(log.ERR, "Tool 'shifts' requires sffile.")
+	elif (tool == 'samask'):
+		# Shape should be 'circular' or 'square'
+		if (params['shape'] not in ['square', 'circular']):
+			log.prNot(log.ERR, "shape invalid, should be 'circular' or 'square'")
 	elif (tool == 'sfmask'):
 		# sasize > sfsize, both must be int, int
 		if (params['sasize'] < params['sfsize']).any():
@@ -516,14 +523,13 @@ class Tool(object):
 			(self.nsa, self.saccdpos, self.saccdsize) = \
 			 	libsh.loadSaSfConf(self.maskfile)
 		# Save all files used to outdir
-		for key, val in params.items():
-			if val.__class__ == 'string'.__class__:
-        if os.path.exists(val):
+		for (key, val) in params.items():
+			if (val.__class__ == 'string'.__class__):
+				if os.path.isfile(val):
 					f = os.path.basename(val)
 					uri = os.path.join(self.outdir, f)
-					libfile.saveOldFile(uri)
-					import shutil
-					shutil.copy2(val, uri)
+					lf.saveOldFile(uri)
+					os.link(val, uri)
 		log.prNot(log.NOTICE, "Processing %d files" % (len(self.files)))
 	
 	
@@ -665,9 +671,9 @@ class Tool(object):
 		"""
 		_path = os.path.basename(path)
 		if (_path != path):
-			log.prNot(log.WARN, "mkuri(): got path instead of filename.")
+			log.prNot(log.WARNING, "mkuri(): got path instead of filename.")
 		
-		return os.path.join(self.oudir, _path)
+		return os.path.join(self.outdir, _path)
 	
 	
 	def maskimg(self, data):
@@ -729,7 +735,7 @@ class SubaptConfTool(Tool):
 		# Subaperture pattern radius
 		self.rad = params['rad']
 		# Subaperture size
-		self.size = params['size']
+		self.sasize = params['sasize']
 		# Subaperture pitch
 		self.pitch = params['pitch']
 		# Aperture shape, either circular or square
@@ -750,7 +756,7 @@ class SubaptConfTool(Tool):
 	def run(self):
 		# Generate pattern
 		(nsa, saccdpos, saccdsize) = \
-			libsh.calcSubaptConf(self.rad, self.size, self.pitch, self.shape, \
+			libsh.calcSubaptConf(self.rad, self.sasize, self.pitch, self.shape, \
 			self.xoff, self.disp, self.scale)
 		# Save to file
 		libsh.saveSaSfConf(self.file, nsa, [-1,-1], saccdsize, saccdpos)
@@ -886,7 +892,7 @@ class SubaptOptTool(Tool):
 
 
 class ShiftTool(Tool):
-	"""Calculate 'static' shifts between subapetures."""
+	"""Calculate shifts between different subfields and subapertures."""
 	def __init__(self, files, params):
 		super(ShiftTool, self).__init__(files, params)
 		self.shrange = params['shrange']
@@ -1118,99 +1124,123 @@ class ShiftOverlayTool(Tool):
 		self.scale = params['scale']
 		self.intclip = params['intclip']
 		self.outformat = params['outformat']
-		# maskfile, subap, sffile, shifts
-		self.subap = params['subap']
+		self.shape = params['shape']
+		self.skip = params['skip']
 		sffile = params['sffile']
 		safile = params['safile']
-		(nsa, saccdpos, saccdsize) = \
+		(self.nsa, self.saccdpos, self.saccdsize) = \
 			libsh.loadSaSfConf(safile)
 		(self.nsf, self.sfccdpos, self.sfccdsize) = \
 			libsh.loadSaSfConf(sffile)
-		self.crop = N.array([saccdpos[self.subap, 0], \
-		 	saccdpos[self.subap, 1], \
-			saccdsize[0], \
-			saccdsize[1]])
-		#self.sfccdposc = sfccdpos + sfccdsize/2.0
+		
+		if params['subap'][0] == -1: self.subaps = range(self.nsa)
+		else: self.subaps = params['subap']
+		self.sfccdposc = self.sfccdpos + self.sfccdsize/2.0
 		self.shifts = params['shifts']
 		self.run()
 	
 	
 	def run(self):
-		# Do not plot overlapping subfields
-		plsf = []
-		allpos = []
-		sz = self.sfccdsize
-		for sf in xrange(self.nsf):
-			shpos = self.sfccdpos[sf] * self.scale
-			# Check if subfields don't overlap
-			if (sf != 0 and (abs(N.array(allpos)-shpos.reshape(1,2)) < sz*self.scale).all(axis=1).any()): continue
-			oldpos = shpos			
-			allpos.append(oldpos)
-			plsf.append(sf)
-		log.prNot(log.NOTICE, "Using %d subfields: %s" % (len(plsf), str(plsf)))
-		plsf = N.array(plsf)
-		# Pre-process shifts
-		shifts = lf.loadData(self.shifts, asnpy=True)
-		shifts = shifts[:,:,self.subap,:,:]
-		notfin = N.argwhere(N.isfinite(shifts) == False)
-		for nfidx in notfin:
-			shifts[tuple(nfidx)] = 0.0
-		shifts = N.mean(shifts, axis=1)
-		log.prNot(log.NOTICE, "Pre-processing shifts.")
-		for sf in xrange(shifts.shape[1]):
-			avg = N.mean(shifts[:,sf,:],0)
-			shifts[:,sf,:] -= avg.reshape(1,2)
-		# Process files
+		# Do not plot overlapping subfields when using boxes
+		if self.shape == 'box':
+			plsf = []
+			allpos = []
+			sz = self.sfccdsize
+			for sf in xrange(self.nsf):
+				shpos = self.sfccdpos[sf] * self.scale
+				# Check if subfields don't overlap
+				if (sf != 0 and (abs(N.array(allpos)-shpos.reshape(1,2)) < sz*self.scale).all(axis=1).any()): continue
+				oldpos = shpos			
+				allpos.append(oldpos)
+				plsf.append(sf)
+			log.prNot(log.NOTICE, "Using %d subfields: %s" % (len(plsf), str(plsf)))
+		elif self.shape == 'dot':
+			plsf = xrange(self.nsf)
+		
+		allshifts = lf.loadData(self.shifts, asnpy=True)
+		log.prNot(log.NOTICE, "Using subapertures %s" % (str(self.subaps)))
+		
+		# Loop over files to process
 		for fidx in xrange(len(self.files)):
 			f = self.files[fidx]			
 			base = os.path.basename(f)
-			log.prNot(log.NOTICE, "Processing file %d/%d, '%s'" % \
-				(fidx+1, len(self.files), base))
 			img = self.load(f)
 			if (img is None): continue
 			dfimg = self.darkflat(img)
-			data = dfimg / dfimg.mean()
-			if (self.scale != 1.0):
-				import scipy.ndimage
-				sc = self.scale
-				orig = data.shape
-				nsc = (N.round(orig[1] * sc / 8) * 8)/orig[1]
-				data = S.ndimage.zoom(data, nsc, mode='wrap')
-				log.prNot(log.NOTICE, "Scaling image by %g (from %d,%d to %d,%d)." % \
-				 	(nsc, orig[0], orig[1], data.shape[0], data.shape[1]))
-			# Crop intensity if necessary
-			if (self.intclip is not False):
-				log.prNot(log.NOTICE, "Clipping intensity to %g--%g." % \
-				 	tuple(self.intclip))
-				data = N.clip(data, self.intclip[0], self.intclip[1])
-			# Add shift vectors, set value at shift vector to max
-			dmax = data.max()
-			dmin = data.min()
-			for sf in plsf:
-				shpos = (self.sfccdpos[sf] - shifts[fidx, sf]) * nsc
-				data[shpos[1]:shpos[1]+(sz[1]*nsc), \
-					shpos[0]] = dmax
-				data[shpos[1]:shpos[1]+(sz[1]*nsc), \
-					shpos[0]+(sz[0]*nsc)] = dmax
-				data[shpos[1]+(sz[1]*nsc), \
-					shpos[0]:shpos[0]+(sz[0]*nsc)] = dmax
-				data[shpos[1], \
-					shpos[0]:shpos[0]+(sz[0]*nsc)] = dmax
-				# This gives a 9 pixel block:
-				# vec = (self.sfccdposc[sf] - shifts[fidx, sf]) * nsc
-				# data[vec[1]-1:vec[1]+2, vec[0]-1:vec[0]+2] = dmax
-				# data[vec[1], vec[0]] = dmin
+			log.prNot(log.NOTICE, "Processing file %d/%d, '%s'" % \
+				(fidx+1, len(self.files), base))
 			
-			# Save again
-			savefile = f+'-subap%d-shifts.%s' % (self.subap, self.outformat)
-			savefile = self.mkuri(savefile)
-			log.prNot(log.NOTICE, "Saving '%s' to '%s'." % \
-				(base, os.path.basename(savefile)))
+			# Filter out non-finite values
+			log.prNot(log.NOTICE, "Pre-processing shifts.")
+			shifts = allshifts[fidx+self.skip,:,:,:,:]
+			notfin = N.argwhere(N.isfinite(shifts) == False)
+			for nfidx in notfin: shifts[tuple(nfidx)] = 0.0
+			log.prNot(log.NOTICE, "Setting %d non-finite values to 0." % \
+				(len(notfin)))
+			
+			# Average over different references
+			shifts = N.mean(shifts, axis=0)
+			# Subtract average over different subapertures
+			#for sa in xrange(shifts.shape[0]):
+			#	avg = N.mean(shifts[sa,:,:], axis=0)
+			#	shifts[:,sf,:] -= avg.reshape(1,2)
+			#print shifts.shape
+			# Loop over subaps to process
+			for sa in self.subaps:
+				# self.crop = N.array([self.saccdpos[sa, 0], self.saccdpos[sa, 1], \
+				# 	self.saccdsize[0], self.saccdsize[1]])
+				# Crop out subaperture, divide by mean
+				data = dfimg[\
+					self.saccdpos[sa, 1]: \
+					self.saccdpos[sa, 1] + self.saccdsize[1], \
+					self.saccdpos[sa, 0]: \
+					self.saccdpos[sa, 0] + self.saccdsize[0]]
+				data = data / data.mean()
 				
-			if (self.outformat == _FORMAT_PNG): self.pngsave(data, savefile)
-			elif (self.outformat == _FORMAT_FITS): self.fitssave(data, savefile)
-			elif (self.outformat == _FORMAT_ANA): self.anasave(data, savefile)
-			elif (self.outformat == _FORMAT_NPY): self.npysave(data, savefile)
+				if (self.scale != 1.0):
+					import scipy.ndimage
+					sc = self.scale
+					orig = data.shape
+					nsc = (N.round(orig[1] * sc / 8) * 8)/orig[1]
+					data = S.ndimage.zoom(data, nsc, mode='wrap')
+					log.prNot(log.NOTICE, "Scaling image by %g (from %d,%d to %d,%d)."%\
+					 	(nsc, orig[1], orig[0], data.shape[1], data.shape[0]))
+					nsc = (N.array(data.shape)*1.0/N.array(orig))[::-1]
+				# Clip intensity if necessary
+				if (self.intclip is not False):
+					log.prNot(log.NOTICE, "Clipping intensity to %g--%g." % \
+					 	tuple(self.intclip))
+					data = N.clip(data, self.intclip[0], self.intclip[1])
+				# Add shift vectors, set value at shift vector to max
+				dmax = data.max()
+				dmin = data.min()
+				for sf in plsf:
+					if self.shape == 'box':
+						shpos = (self.sfccdpos[sf] - shifts[sa, sf]) * nsc
+						data[shpos[1]:shpos[1]+(sz[1]*nsc[1]), \
+							shpos[0]] = dmax
+						data[shpos[1]:shpos[1]+(sz[1]*nsc[1]), \
+							shpos[0]+(sz[0]*nsc[0])-1] = dmax
+						data[shpos[1]+(sz[1]*nsc[1])-1, \
+							shpos[0]:shpos[0]+(sz[0]*nsc[0])] = dmax
+						data[shpos[1], \
+							shpos[0]:shpos[0]+(sz[0]*nsc[1])] = dmax
+					elif self.shape == 'dot':
+					# This gives a 9 pixel block:
+						vec = (self.sfccdposc[sf] - shifts[sa, sf]) * nsc
+						data[vec[1]-1:vec[1]+2, vec[0]-1:vec[0]+2] = dmax
+						data[vec[1], vec[0]] = dmin
+				
+				# Save again
+				savefile = f+'-subap%d-shifts.%s' % (sa, self.outformat)
+				savefile = self.mkuri(savefile)
+				log.prNot(log.NOTICE, "Saving '%s' to '%s'." % \
+					(base, os.path.basename(savefile)))
+				
+				if (self.outformat == _FORMAT_PNG): self.pngsave(data, savefile)
+				elif (self.outformat == _FORMAT_FITS): self.fitssave(data, savefile)
+				elif (self.outformat == _FORMAT_ANA): self.anasave(data, savefile)
+				elif (self.outformat == _FORMAT_NPY): self.npysave(data, savefile)
 		
 	
 
