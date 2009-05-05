@@ -24,7 +24,7 @@ import libfile as lf
 import liblog as log
 #import libplot
 
-VERSION = "0.0.1"
+VERSION = "0.0.2"
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "2009-04-24"
 
@@ -58,7 +58,7 @@ Common options
  -v, --verbose               increase verbosity
  -l, --log=FILE              log messages to this file as well
  -h, --help                  show this help
- -s, --stats                 show RMS of each file processed [False]
+ -d, --dir=DIR               use DIR as outputdir for all files
  -i, --informat=FORMAT       input file-format [ana]
      --ff=FILEPATH           use this flatfield when correcting files [none]
      --fm=N                  flatfield consists of N summed frames
@@ -182,10 +182,12 @@ _itype = N.int32
 ### ==========================================================================
 
 def main(argv=None):
+	beg = time.time()
 	# Parse command-line options from sys.argv
 	(tool, params, files) = parse_options()
 	# Sanity check on parameters
 	check_params(tool, params)
+	log.prNot(log.NOTICE, "Command: '%s'" % (str(sys.argv)))
 	# Perform action requested
 	log.prNot(log.NOTICE, "Tool: %s." % tool)
 	if (tool == 'convert'): ConvertTool(files,params)
@@ -199,7 +201,8 @@ def main(argv=None):
 	elif (tool == 'procshifts'): ProcShiftsTool(files, params)
 	
 	# done
-	log.prNot(log.NOTICE, "Complete.")
+	dur = time.time() - beg
+	log.prNot(log.NOTICE, "Complete, processed %d frames in %d seconds (%.3gfps)" % (len(files), dur, len(files)/dur))
 	return 0
 
 
@@ -227,16 +230,17 @@ def parse_options():
 	
 	params = get_defaults(tool)
 	
-	opts, args = getopt.getopt(argv[2:], "vhsi:o:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "scale=", "rad=", "shape=", "size=", "pitch=", "xoff=", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log="])
+	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "size=", "pitch=", "xoff=", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log="])
 	# Remaining 'args' must be files
 	files = args
 	
 	for option, value in opts:
-		log.prNot(log.INFO, 'Parsing common: %s:%s' % (option, value))
+		log.prNot(log.INFO, 'Parsing: %s:%s' % (option, value))
 		if option in ["-v", "--verbose"]: log.VERBOSITY += 1
 		if option in ["-l", "--log"]: log.LOGFILE = os.path.realpath(value)
 	for option, value in opts:
-		log.prNot(log.INFO, 'Parsing common: %s:%s' % (option, value))
+		log.prNot(log.INFO, 'Parsing: %s:%s' % (option, value))
+		if option in ["-d", "--dir"]: params['stats'] = os.path.realpath(value)
 		if option in ["-h", "--help"]: print_help(tool)
 		if option in ["-s", "--stats"]: params['stats'] = True
 		if option in ["-i", "--informat"]: params['informat'] = value
@@ -249,7 +253,7 @@ def parse_options():
 		if option in ["--nonorm"]: params['norm'] = False
 		if option in ["--plot"]: params['plot'] = True
 		if option in ["--noplot"]: params['plot'] = False
-		if option in ["-f", "--file"]: params['file'] = os.path.realpath(value)
+		if option in ["-f", "--file"]: params['file'] = value
 		if option in ["--crop"]: params['crop'] = value.split(',')
 		# Convert
 		if option in ["-o", "--outformat"]: params['outformat'] = value
@@ -302,6 +306,7 @@ def get_defaults(tool):
 	default['informat'] = _FORMAT_ANA
 	default['file'] = False
 	default['plot'] = False
+	default['outdir'] = os.path.realpath('astooki-out')
 	# Convert defaults:
 	default['scale'] = 1.0
 	default['intclip'] = False
@@ -351,7 +356,10 @@ def check_params(tool, params):
 	
 	# Common options requirements
 	# ===================================================================
-	
+	# Output dir must exist
+	if (params['outdir']) and 
+		(not os.path.isdir(params['outdir'])):
+		os.makedirs(params['outdir'])
 	# Check outformat
 	if params['outformat'] not in _OUTFORMATS:
 		log.prNot(log.ERR, "Unsupported output format '%s'" %(params['outformat']))
@@ -488,6 +496,7 @@ class Tool(object):
 		self.files = files
 		self.params = params
 		# Save some options common for all tools
+		self.outdir = params['outdir']
 		self.informat = params['informat']
 		self.flatfield = params['flatfield']
 		self.flatmulti = params['flatmulti']
@@ -506,12 +515,16 @@ class Tool(object):
 			log.prNot(log.INFO, "Loading mask files.")
 			(self.nsa, self.saccdpos, self.saccdsize) = \
 			 	libsh.loadSaSfConf(self.maskfile)
-		
-		# This is the dataid, containing the direct parent directory, the base of 
-		# the file, and the range of extensions we have:
-		
-		log.prNot(log.NOTICE, "Processing %d files" % \
-			(len(self.files)))
+		# Save all files used to outdir
+		for key, val in params.items():
+			if val.__class__ == 'string'.__class__:
+        if os.path.exists(val):
+					f = os.path.basename(val)
+					uri = os.path.join(self.outdir, f)
+					libfile.saveOldFile(uri)
+					import shutil
+					shutil.copy2(val, uri)
+		log.prNot(log.NOTICE, "Processing %d files" % (len(self.files)))
 	
 	
 	def load(self, filename):
@@ -645,6 +658,16 @@ class Tool(object):
 		ctx.transform(mat)
 		# Save to disk
 		cairo.ImageSurface.write_to_png(surf, filepath)
+	
+	
+	def mkuri(self, path):
+		"""
+		"""
+		_path = os.path.basename(path)
+		if (_path != path):
+			log.prNot(log.WARN, "mkuri(): got path instead of filename.")
+		
+		return os.path.join(self.oudir, _path)
 	
 	
 	def maskimg(self, data):
@@ -924,29 +947,30 @@ class ShiftTool(Tool):
 		allshifts = N.array(allshifts)
 		# Store the list of files where we save data to
 		files = {}
-		files['shifts'] = lf.saveData(self.file + '-shifts', allshifts, \
-		 	asnpy=True, asfits=True)
-		files['refaps'] = lf.saveData(self.file + '-refaps', allrefs, \
-		 	asnpy=True, ascsv=True)
-		files['saccdpos'] = lf.saveData(self.file + '-saccdpos', \
-		 	self.saccdpos, asnpy=True)
-		files['sfccdpos'] = lf.saveData(self.file + '-sfccdpos', \
+		files['shifts'] = lf.saveData(self.mkuri(self.file + '-shifts'), \
+		 	allshifts, asnpy=True, asfits=True)
+		files['refaps'] = lf.saveData(self.mkuri(self.file + '-refaps'), \
+			allrefs, asnpy=True, ascsv=True)
+		files['saccdpos'] = lf.saveData(self.mkuri(self.file + '-saccdpos'), \
+			self.saccdpos, asnpy=True)
+		files['sfccdpos'] = lf.saveData(self.mkuri(self.file + '-sfccdpos'), \
 		 	self.sfccdpos, asnpy=True)
-		files['saccdsize'] = lf.saveData(self.file + '-saccdsize', \
+		files['saccdsize'] = lf.saveData(self.mkuri(self.file + '-saccdsize'), \
 		 	self.saccdsize, asnpy=True)
-		files['sfccdsize'] = lf.saveData(self.file + '-sfccdsize', \
+		files['sfccdsize'] = lf.saveData(self.mkuri(self.file + '-sfccdsize'), \
 		 	self.sfccdsize, asnpy=True)
 		cpos = self.saccdpos.reshape(-1,1,2) + self.sfccdpos.reshape(1,-1,2) + \
 			self.sfccdsize.reshape(1,1,2)/2.0
-		files['sasfpos-c'] = lf.saveData(self.file + '-sasfpos-c', \
+		files['sasfpos-c'] = lf.saveData(self.mkuri(self.file + '-sasfpos-c'), \
 		 	cpos, asnpy=True, asfits=True)
-		files['files'] = lf.saveData(self.file + '-files', \
+		files['files'] = lf.saveData(self.mkuri(self.file + '-files'), \
 		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')
 		# Add meta info
 		files['path'] = os.path.dirname(os.path.realpath(self.file))
 		files['base'] = os.path.basename(self.file)
 		
-		metafile = lf.saveData(self.file + '-meta', files, aspickle=True)
+		metafile = lf.saveData(self.mkuri(self.file + '-meta'), \
+			files, aspickle=True)
 		# If we have only one subfield, also calculate 'static' shifts
 
 
@@ -1022,12 +1046,13 @@ class StatsTool(Tool):
 		log.prNot(log.NOTICE, "all %d: mean: %.4g+-%.4g rms: %.4g+-%.4g (%.3g%%+-%.4g)" % \
 			(allstats.shape[0], all_avg[0], all_std[0], all_avg[2], all_std[2], all_avg[3], all_std[3]))
 		# Save results if requested
-		nf = lf.saveData(self.file + '-stats', allstats, asnpy=True)
+		nf = lf.saveData(self.mkuri(self.file + '-stats'), allstats, asnpy=True)
 		hdr = ['filename, path=%s' % \
 		 	(os.path.dirname(os.path.realpath(self.files[0]))), 'avg', \
 		 	'std', 'rms', 'fractional rms']
-		cf = lf.saveData(self.file + '-stats', N.concatenate((allfiles, \
-		 	allstats), axis=1), ascsv=True, csvhdr=hdr, csvfmt='%s')
+		cf = lf.saveData(self.mkuri(self.file + '-stats'), \
+		 	N.concatenate((allfiles, allstats), axis=1), ascsv=True, csvhdr=hdr, \
+		 	csvfmt='%s')
 	
 
 
@@ -1070,8 +1095,10 @@ class ConvertTool(Tool):
 				 	tuple(self.intclip))
 				data = N.clip(data, self.intclip[0], self.intclip[1])
 			# Save again
-			if (len(self.files) == 1 and self.file): savefile = self.file
-			else: savefile = f+'.'+self.outformat
+			if (len(self.files) == 1 and self.file): 
+				savefile = self.mkuri(self.file)
+			else: 
+				savefile = self.mkuri(f+'.'+self.outformat)
 			log.prNot(log.NOTICE, "Saving '%s' as %s in '%s'." % \
 				(base, self.outformat, os.path.basename(savefile)))
 				
@@ -1176,6 +1203,7 @@ class ShiftOverlayTool(Tool):
 			
 			# Save again
 			savefile = f+'-subap%d-shifts.%s' % (self.subap, self.outformat)
+			savefile = self.mkuri(savefile)
 			log.prNot(log.NOTICE, "Saving '%s' to '%s'." % \
 				(base, os.path.basename(savefile)))
 				
@@ -1221,8 +1249,8 @@ class ProcShiftsTool(Tool):
 			#	N.bincount(notfin[:,0])
 			if (notfin_perc > 0.5):
 				log.prNot(log.WARNING, "Percentage of non-finite entries very high!")
-			metafiles['notfinite'] = lf.saveData(data['base'] + '-notfinite', \
-			 	notfin, ascsv=True, asnpy=True)
+			metafiles['notfinite'] = lf.saveData(self.mkuri(data['base'] + \
+			 	'-notfinite'), notfin, ascsv=True, asnpy=True)
 			
 			# Make a list of all finite frames by excluding all non-finite frames
 			# NB: does not work properly, throws away too much data. How to repair
@@ -1235,10 +1263,10 @@ class ProcShiftsTool(Tool):
 			if (len(sfccdpos) == 1):
 				log.prNot(log.NOTICE, "Calculating static offsets.")
 				(soff, sofferr) = libsh.procStatShift(allshifts_fin[:,:,:,0,:])
-				metafiles['offsets'] = lf.saveData(data['base'] + '-offset', \
-			 		soff, asnpy=True, ascsv=True)
-				metafiles['offset-err'] = lf.saveData(data['base'] + '-offset-err', \
-			 		sofferr, asnpy=True, ascsv=True)
+				metafiles['offsets'] = lf.saveData(self.mkuri(data['base'] + \
+				 	'-offset'), soff, asnpy=True, ascsv=True)
+				metafiles['offset-err'] = lf.saveData(self.mkuri(data['base'] + \
+				 	'-offset-err'), sofferr, asnpy=True, ascsv=True)
 				if (self.plot):
 					import libplot
 					libplot.plotShifts(data['base'] + '-offset-plot', allshifts_fin, \
