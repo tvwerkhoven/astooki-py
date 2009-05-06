@@ -2,28 +2,104 @@
 # encoding: utf-8
 
 ### Test libshifts-c library
-
+import sys
 import pyana
 import libsh
-import numpy
+import numpy as N
 import scipy
-#import Clibshifts
+import _libshifts
+import libshifts
 
-pdir = './data/2009.04.27/proc/'
-ddir = './data/2009.04.27/'
-imfile = 'wfwfs_test_im27Apr2009.0001000'
+def main():
+	pdir = 'data/2009.04.28-run01/proc/'
+	ddir = 'data/2009.04.28-run01/'
+	imfile = 'wfwfs_test_im28Apr2009.0000100'
+	
+	# load SA / SF config
+	(nsa, saccdpos, saccdsize) = libsh.loadSaSfConf(pdir+'2009.04.28-mask.csv')
+	(nsf, sfccdpos, sfccdsize) = \
+		libsh.loadSaSfConf(pdir+'2009.04.28-subfield-big.csv')
+	
+	#saccdpos = saccdpos[20:30]
+	nsa = len(saccdpos)
+	# load image 
+	img = pyana.getdata(ddir+imfile)
+	img = img.astype(N.float32)
+	
+	# # Make fake image with gaussian
+	im1 = mk2dgauss((512,512), (153.5, 150.6))
+	im2 = mk2dgauss((512,512), (300, 150.))
+	im3 = mk2dgauss((512,512), (151.2, 303.3))
+	im4 = mk2dgauss((512,512), (302.4, 300.3))
+	img = (im1+im2+im3+im4).astype(N.float32)
+	saccdpos = N.array([[150, 150], [300, 150], [150, 300], [300, 300]], dtype=N.int32) - N.int32([32,32])
+	saccdsize = N.array([64,64], dtype=N.int32)
+	sfccdpos = N.array([[40, 40]], dtype=N.int32)
+	sfccdsize = N.array([12, 12], dtype=N.int32)
+	#saccdpos = saccdpos[:2]
+	nsa = len(saccdpos)
+	# Pass to C library
+	refsa=0
+	ref = img[saccdpos[refsa][1]:saccdpos[refsa][1]+saccdsize[1], saccdpos[refsa][0]:saccdpos[refsa][0]+saccdsize[0]]
+	ref = ref/ref.mean()
+	for sa in xrange(nsa):
+		pos = saccdpos[sa]
+		c = img[pos[1]:pos[1]+saccdsize[1], pos[0]:pos[0]+saccdsize[0]]
+		
+		rms = (N.sum((c - c.mean())**2.0)/(N.product(saccdsize)))**0.5
+		print "sa #%d @ (%d,%d) mean: %g, rms: %g, %g" % (sa, pos[0], pos[1], c.mean(), rms, rms/c.mean()),
+		c = c / c.mean()
+		_subfield = c[sfccdpos[0][1]:sfccdpos[0][1]+sfccdsize[1], \
+			sfccdpos[0][0]:sfccdpos[0][0]+sfccdsize[0]]
+		diffmap = libshifts.sqDiffWeave(_subfield, ref, sfccdpos[0], N.array([7,7]))
+		#print "sf #%d mean: %g" % (0, _subfield.mean()),
+		print diffmap.max(), diffmap.min(), diffmap.mean()
+		diffmap = diffmap.astype(N.float32)
+		print libshifts.quadInt2dWeave(diffmap, range=N.array([7,7]), limit=N.array([7,7]))
+		
+	
+	datr = _libshifts.calcShifts(img, saccdpos, saccdsize, sfccdpos, sfccdsize, N.array([7,7]))
+	
+
+
+def mk2dgauss(size, orig):
+	im = N.indices(size)
+	dat1 = N.exp(-(im[0]-orig[1])**2.0/300.)
+	dat2 = N.exp(-(im[1]-orig[0])**2.0/300.)
+	dat = (dat1*dat2)/(dat1*dat2).max()
+	return dat
+
+
+	
+def fill(l=None, m='e'):
+	if l is not None:
+		if m == 'e':
+			print 'extending'
+			l.extend([1,2,3,4])
+		elif m == 'a':
+			print 'appending'
+			l.append([1,2,3,4])
+
+
+if __name__ == "__main__":
+	sys.exit(main())
+
+pdir = '../data/2009.04.28-run01/proc/'
+ddir = '../data/2009.04.28-run01/'
+imfile = 'wfwfs_test_im28Apr2009.0000100'
 
 # load SA / SF config
-(nsa, saccdpos, saccdsize) = libsh.loadSaSfConf(pdir+'2009.04.22-mask.csv')
+(nsa, saccdpos, saccdsize) = libsh.loadSaSfConf(pdir+'2009.04.28-mask.csv')
 (nsf, sfccdpos, sfccdsize) = \
- 	libsh.loadSaSfConf(pdir+'2009.04.22-subfield-big.csv')
+ 	libsh.loadSaSfConf(pdir+'2009.04.28-subfield-big.csv')
 
 # load image 
 img = pyana.getdata(ddir+imfile)
+img = img.astype(N.float32)
 
 # Pass to C library
 
-#Clibshifts.calcShifts(img, saccdpos, saccdsize, sfccdpos, sfccdsize, N.array([4,4]))
+_libshifts.calcShifts(img, saccdpos, saccdsize, sfccdpos, sfccdsize, N.array([4,4]))
 
 # done
 
@@ -73,4 +149,6 @@ for sa in sas:
 for r in xrange(subsh.shape[1]):
 	subsh[:, r, :, :, :]
 	avg = N.mean(subsh[f, r, :, :, :].reshape(-1,2), axis=0)
-		subsh[f, r, :, :, :] -= avg.reshape(1,1,2)
+	subsh[f, r, :, :, :] -= avg.reshape(1,1,2)
+
+
