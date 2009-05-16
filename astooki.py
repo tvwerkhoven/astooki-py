@@ -21,6 +21,7 @@ import scipy as S
 import libsh
 import libfile as lf
 import liblog as log
+import pdb
 #import libplot
 
 VERSION = "0.0.2"
@@ -41,6 +42,7 @@ Tools
  shifts                      Measure image shifts in various subfields and 
                                subimages
  procshifts                  Process shifts measured with the shifts tool
+ tomo                        Tomographically analyze differential image shifts
 
 Input formats supported
  ana                         ANA format
@@ -66,6 +68,8 @@ Common options
      --mf=FILEPATH           use this configuration as mask file [none]
      --[no]norm              normalize pixels when masking [True]
      --crop=X,Y,W,H          crop region at X,Y size W,H
+     --config=FILE           python file holding configuration, instead of 
+                               using command-line arguments [None]
 
 Convert options
  -f, --file=FILEPATH         if single file, store converted file here 
@@ -79,7 +83,7 @@ Stats options
 Shiftoverlay options
      --intclip=LOW,HIGH      clip intensity to this range
      --subap=SA1,SA2,...     subapertures to process, set to -1 for all.
-     --safile=FILEPATH       subaperture positions
+     --safile=FILEPATH       subaperture positions (csv)
      --sffile=FILEPATH       subfield positions relative to subap (csv)
      --shifts=FILEPATH       image shifts file
      --shape=[box,dot]       shape to indicate the shifts with
@@ -95,7 +99,7 @@ Samask options
                                units of --sasize [0, 0.5]
      --disp=X,Y              global pattern offset [0,0]
      --scale=SCALE           global pattern scaling factor [1.0]
-     --[no]plot              make a plot of the subaperture mask [yes]
+     --[no]plot              make a plot of the subaperture mask [no]
 
 Sfmask options
  -f, --file=FILEPATH         file to store subaperture configuration to
@@ -118,6 +122,18 @@ Shifts options
      --safile=FILEPATH       subaperture locations, same format as maskfile
      --sffile=FILEPATH       subfield locations w.r.t. subaperture locations
  -n, --nref=INT              number of references to use [4]
+
+Tomo options
+     --shifts=FILE           shift measurements
+     --safile=FILE           centroid positions for each subaperture IN 
+															APERTURE SPACE (meter)
+     --sffile=FILE           subfield positions on the CCD (pixels)
+     --ccdres                angular resolution of the CCD pixels (arcsec/pix)
+     --aptr=R                telescope aperture radius (meter)
+     --nheights=N1,N2,...    number of heights each layer should be put at
+     --layerheights=L1min-L1max,L2min-L2max,...
+                             height range of each layer (meters)
+     --layercells=W,H        number of cells in a layer
 
 Examples
  To calculate stats for a series of files in one directory, using dark- and
@@ -186,7 +202,7 @@ _FORMAT_NPY = 'npy'
 _INFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_NPY)
 _OUTFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_PNG, _FORMAT_NPY)
 ### Tools available
-_TOOLS = ('convert', 'stats', 'shiftoverlay', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts', 'procshifts')
+_TOOLS = ('convert', 'stats', 'shiftoverlay', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts', 'procshifts', 'tomo')
 ### Default types to use
 _ftype = N.float64
 _itype = N.int32
@@ -214,10 +230,11 @@ def main(argv=None):
 	elif (tool == 'saupd'): SubaptUpdateTool(files, params)
 	elif (tool == 'shifts'): ShiftTool(files, params)
 	elif (tool == 'procshifts'): ProcShiftsTool(files, params)
+	elif (tool == 'tomo'): TomoTool(files, params)
 	
 	# done
 	dur = time.time() - beg
-	log.prNot(log.NOTICE, "Complete, processed %d files in %d seconds (%.3gfps)" % (len(files), dur, len(files)/dur))
+	log.prNot(log.NOTICE, "Complete %d" % (dur)
 	return 0
 
 
@@ -243,7 +260,7 @@ def parse_options():
 	
 	params = get_defaults(tool)
 	
-	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "pitch=", "xoff=", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log=", "skip="])
+	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "pitch=", "xoff=", "origin", "noorigin", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log=", "skip=", "ccdres=", "aptr=", "layerheights=", "nheights=", "layercells="])
 	# Remaining 'args' must be files
 	files = args
 	
@@ -300,6 +317,12 @@ def parse_options():
 		if option in ["--safile"]: params['safile'] = os.path.realpath(value)
 		if option in ["--sffile"]: params['sffile'] = os.path.realpath(value)
 		if option in ["-n", "--nref"]: params['nref'] = N.int32(value)
+		# Tomo
+		if option in ["--ccdres"]: params['ccdres'] = float(value)
+		if option in ["--aptr"]: params['aptr'] = float(value)
+		if option in ["--nheights"]: params['nheights'] = value.split(',')
+		if option in ["--layerheights"]: params['layerheights'] = value.split(',')
+		if option in ["--layercells"]: params['layercells'] = value.split(',')		
 		
 	
 	return (tool, params, files)
@@ -324,8 +347,8 @@ def get_defaults(tool):
 	default['plot'] = False
 	default['outdir'] = os.path.realpath('astooki-out/')
 	default['crop'] = False
+	default['scale'] = 1.0
 	if (tool == 'convert'):
-		default['scale'] = 1.0
 		default['intclip'] = False
 		default['outformat'] = _FORMAT_FITS
 	elif (tool == 'shiftoverlay'):
@@ -354,6 +377,13 @@ def get_defaults(tool):
 		default['safile'] = False
 		default['sffile'] = False
 		default['nref'] = 4
+	elif (tool == 'tomo'):
+		default['ccdres'] = 0.45
+		default['aptr'] = 0.49
+		default['shifts'] = False
+		default['nheights'] = ['3','1']
+		default['layerheights'] = ['0-1000', '10000-10000']
+		default['layercells'] = ['8', '8']
 	
 	return default
 
@@ -406,24 +436,24 @@ def check_params(tool, params):
 		lf.saveOldFile(params['file'], postfix='.old', maxold=5)
 	
 	if params.has_key('pitch'):
-		try: params['pitch'] = N.array(params['pitch']).astype(N.int)[[0,1]]
-		except: log.prNot(log.ERR, "pitch invalid, should be <int>,<int>.")
+		try: params['pitch'] = N.array(params['pitch']).astype(N.float)[[0,1]]
+		except: log.prNot(log.ERR, "pitch invalid, should be <float>,<float>.")
 	
 	if params.has_key('xoff'):
 		try: params['xoff'] = N.array(params['xoff']).astype(N.float)[[0,1]]
 		except: log.prNot(log.ERR, "xoff invalid, should be <float>,<float>.")
 	
 	if params.has_key('disp'):
-		try: params['disp'] = N.array(params['disp']).astype(N.int)[[0,1]]
-		except: log.prNot(log.ERR, "disp invalid, should be <int>,<int>.")
+		try: params['disp'] = N.array(params['disp']).astype(N.float)[[0,1]]
+		except: log.prNot(log.ERR, "disp invalid, should be <float>,<float>.")
 	
 	if params.has_key('sfsize'):
 		try: params['sfsize'] = N.array(params['sfsize']).astype(N.int)[[0,1]]
 		except: log.prNot(log.ERR, "sfsize invalid, should be <int>,<int>.")
 	
 	if params.has_key('sasize'):
-		try: params['sasize'] = N.array(params['sasize']).astype(N.int)[[0,1]]
-		except: log.prNot(log.ERR, "sasize invalid, should be <int>,<int>.")
+		try: params['sasize'] = N.array(params['sasize']).astype(N.float)[[0,1]]
+		except: log.prNot(log.ERR, "sasize invalid, should be <float>,<float>.")
 	
 	if params.has_key('overlap'):
 		try: params['overlap'] = N.array(params['overlap']).astype(N.float)[[0,1]]
@@ -444,6 +474,25 @@ def check_params(tool, params):
 	
 	if params.has_key('outformat') and (params['outformat'] not in _OUTFORMATS):
 		log.prNot(log.ERR, "Unsupported output '%s'" % (params['outformat']))
+	
+	if params.has_key('nheights'):
+		params['nheights'] = N.array(params['nheights']).astype(N.int)
+	
+	if params.has_key('layerheights'):
+		try: 
+			heights = []
+			for hran in params['layerheights']:
+				heights.append(hran.split('-'))
+			params['layerheights'] = N.array(heights).astype(N.float)
+		except: 
+			log.prNot(log.ERR, "layerheights invalid, should be <float>-<float>,<float>-<float>,....")
+	
+	if params.has_key('layercells'):
+		try: params['layercells'] = \
+			 N.array(params['layercells']).astype(N.int)[[0,1]]
+		except: 
+			log.prNot(log.ERR, "layercells invalid, should be <int>,<int>.")
+		
 	
 	# Requirements depending on tools (where defaults are not sufficient)
 	# ===================================================================
@@ -488,6 +537,8 @@ def check_params(tool, params):
 		if (params['offsets']) and \
 			(not os.path.exists(params['offsets'])):
 			log.prNot(log.ERR, "Tool 'saupd' requires offsets file.")
+	#elif (tool == 'tomo'):
+		# tomo needs ccdres, aptr, shifts
 	
 	# Done
 
@@ -529,8 +580,10 @@ class Tool(object):
 					f = os.path.basename(val)
 					uri = os.path.join(self.outdir, f)
 					lf.saveOldFile(uri)
-					os.link(val, uri)
-		log.prNot(log.NOTICE, "Processing %d files" % (len(self.files)))
+					if (os.path.getsize(val) < 1024*1024):
+						import shutil
+						shutil.copy2(val, uri)
+						#os.link(val, uri)
 	
 	
 	def load(self, filename):
@@ -755,16 +808,19 @@ class SubaptConfTool(Tool):
 	
 	def run(self):
 		# Generate pattern
-		(nsa, saccdpos, saccdsize) = \
+		(nsa, llpos, cpos, size) = \
 			libsh.calcSubaptConf(self.rad, self.sasize, self.pitch, self.shape, \
 			self.xoff, self.disp, self.scale)
 		# Save to file
-		libsh.saveSaSfConf(self.file, nsa, [-1,-1], saccdsize, saccdpos)
+		tmp = os.path.splitext(self.file)
+		libsh.saveSaSfConf(tmp[0]+'-origin'+tmp[1], nsa, [-1,-1], size, llpos)
+		libsh.saveSaSfConf(tmp[0]+'-centroid'+tmp[1], nsa, [-1,-1], size, cpos)
 		if (self.plot):
 			import libplot
-			plfile = os.path.splitext(self.file)[0]+'-plot.eps'
-			libplot.showSaSfLayout(plfile, saccdpos, saccdsize, \
-				plrange=[[0, 2*self.rad]]*2)
+			plrange = [list(N.array([-self.rad, self.rad]) + self.disp)]*2
+			print plrange
+			libplot.showSaSfLayout(tmp[0]+'-plot.eps', llpos, size, \
+				plrange=plrange)
 		# Done
 		
 	
@@ -921,7 +977,8 @@ class ShiftTool(Tool):
 	
 	
 	def run(self):
-		import libshifts as ls
+		#import libshifts as ls
+		import clibshifts as ls
 		# Process files
 		allshifts = []
 		allfiles = []
@@ -1312,6 +1369,69 @@ class ProcShiftsTool(Tool):
 			
 	
 
+
+class TomoTool(Tool):
+	"""Tomographically analyze WFWFS data"""
+	def __init__(self, files, params):		
+		super(TomoTool, self).__init__(files, params)
+		# Load shift data
+		self.shifts = lf.loadData(params['shifts'], asnpy=True)
+		# Load subaperture centroid positions
+		(self.nsa, self.sapos, self.sasize) = \
+		 	libsh.loadSaSfConf(params['safile'])
+		# Load subfield pixel positions
+		(self.nsf, self.sfccdpos, self.sfsize) = \
+			libsh.loadSaSfConf(params['sffile'])
+		# Store ccd resolution in radians (arcsec -> radian == /60/60 * pi/180)
+		self.ccdres = params['ccdres'] * N.pi /60./60./180.
+		# Telescope aperture radius
+		self.aptr = params['aptr']
+		# Geometry (layer heights and number of cells)
+		nlay = params['nheights']
+		lh = params['layerheights']
+		self.lcells = params['layercells']
+		self.geoms = N.zeros((N.product(nlay), len(nlay)))
+		self.origs = N.zeros((N.product(nlay), len(nlay)))
+		self.sizes = N.zeros((N.product(nlay), len(nlay)))
+		# Calculate effective (subfield) FoV 
+		self.fov = (N.max(self.sfccdpos + self.sfsize, axis=0) - \
+			N.min(self.sfccdpos, axis=0)) * self.ccdres 
+		self.sffov = self.sfsize * self.ccdres
+		# Calculate subfield pointing angles, set average to 0
+		self.sfang = (self.sfccdpos + self.sfsize/2.0) * self.ccdres
+		self.sfang -= N.mean(self.sfang, axis=0)
+		
+		# Setup all layer configurations
+		for l in range(len(nlay)):
+			thisHeights = N.linspace(lh[l,0], lh[l,1], nlay[l])
+			# All height permutations such that we can loop over them
+			self.geoms[:, l] = N.tile(\
+				N.repeat(thisHeights, N.product(nlay[l+1:])), N.product(nlay[:l]))
+		
+		telang = [0.0, 0.0]
+		self.lorigs = self.geoms.reshape(N.product(nlay), \
+			 	len(nlay), 1) * N.tan(telang).reshape(1,1,2)
+		self.lsizes = self.aptr + \
+				self.geoms.reshape(N.product(nlay), len(nlay), 1)*\
+				N.tan(0.5 * self.fov).reshape(1,1,2)
+		log.prNot(log.NOTICE, "Starting tomographical analysis of WFWFS data stored in '%s' using %d layers with each %dx%d cells." % (params['shifts'], len(nlay), self.lcells[0], self.lcells[1]))
+		
+		self.run()
+	
+	
+	def run(self):
+		import libtomo as lt
+		# Setup SVD cache for inverting data
+		print self.shifts.shape
+		svdCache = lt.cacheSvd(self.geoms, self.lsizes, self.lorigs, \
+			self.lcells, self.sasize, self.sapos, self.sfang, self.sffov)
+		# Loop over different reconstruction geometries
+			## Setup input atmosphere
+			## ======================
+
+	
+
+	
 ### ==========================================================================
 ### Helper functions
 ### ==========================================================================
