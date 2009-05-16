@@ -9,6 +9,7 @@ import numpy as N
 import scipy
 import _libshifts
 import libshifts
+import time
 
 def main():
 	pdir = 'data/2009.04.28-run01/proc/'
@@ -27,38 +28,52 @@ def main():
 	img = img.astype(N.float32)
 	
 	# # Make fake image with gaussian
-	im1 = mk2dgauss((512,512), (153.5, 150.6))
-	im2 = mk2dgauss((512,512), (300, 150.))
-	im3 = mk2dgauss((512,512), (151.2, 303.3))
-	im4 = mk2dgauss((512,512), (302.4, 300.3))
-	img = (im1+im2+im3+im4).astype(N.float32)
-	saccdpos = N.array([[150, 150], [300, 150], [150, 300], [300, 300]], dtype=N.int32) - N.int32([32,32])
-	saccdsize = N.array([64,64], dtype=N.int32)
-	sfccdpos = N.array([[40, 40]], dtype=N.int32)
-	sfccdsize = N.array([12, 12], dtype=N.int32)
-	#saccdpos = saccdpos[:2]
-	nsa = len(saccdpos)
+	# im1 = mk2dgauss((512,512), (153.5, 150.6))
+	# im2 = mk2dgauss((512,512), (300, 150.))
+	# im3 = mk2dgauss((512,512), (151.2, 303.3))
+	# im4 = mk2dgauss((512,512), (302.4, 300.3))
+	# img = (im1+im2+im3+im4).astype(N.float32)
+	# saccdpos = N.array([[150, 150], [300, 150], [150, 300], [300, 300]], dtype=N.int32) - N.int32([32,32])
+	# saccdsize = N.array([64,64], dtype=N.int32)
+	# sfccdpos = N.array([[40, 40]], dtype=N.int32)
+	# sfccdsize = N.array([12, 12], dtype=N.int32)
+	# #saccdpos = saccdpos[:2]
+	# nsa = len(saccdpos)
 	# Pass to C library
-	refsa=0
-	ref = img[saccdpos[refsa][1]:saccdpos[refsa][1]+saccdsize[1], saccdpos[refsa][0]:saccdpos[refsa][0]+saccdsize[0]]
-	ref = ref/ref.mean()
+	beg1 = time.time()
+	datr = _libshifts.calcShifts(img, saccdpos, saccdsize, sfccdpos, sfccdsize, N.array([7,7]))
+	print datr.keys()
+	print datr['shifts'].shape
+	# for sa in xrange(nsa):
+	# 	print datr['shifts'][0][sa][0]
+	print datr['refapts'].shape
+	
+	refsa = datr['refapts'][0]
+	ref = img[saccdpos[refsa][1]:saccdpos[refsa][1]+saccdsize[1], saccdpos[refsa][0]:saccdpos[refsa][0]+saccdsize[0]].astype(N.float32)
+	ref = ref/N.float32(ref.mean())
+	pyshift = []
+	beg2 = time.time()
 	for sa in xrange(nsa):
 		pos = saccdpos[sa]
 		c = img[pos[1]:pos[1]+saccdsize[1], pos[0]:pos[0]+saccdsize[0]]
 		
-		rms = (N.sum((c - c.mean())**2.0)/(N.product(saccdsize)))**0.5
-		print "sa #%d @ (%d,%d) mean: %g, rms: %g, %g" % (sa, pos[0], pos[1], c.mean(), rms, rms/c.mean()),
+		#rms = (N.sum((c - c.mean())**2.0)/(N.product(saccdsize)))**0.5
+		#print "sa #%d @ (%d,%d) mean: %g, rms: %g, %g" % (sa, pos[0], pos[1], c.mean(), rms, 100*rms/c.mean()),
 		c = c / c.mean()
 		_subfield = c[sfccdpos[0][1]:sfccdpos[0][1]+sfccdsize[1], \
-			sfccdpos[0][0]:sfccdpos[0][0]+sfccdsize[0]]
+			sfccdpos[0][0]:sfccdpos[0][0]+sfccdsize[0]].astype(N.float32)
 		diffmap = libshifts.sqDiffWeave(_subfield, ref, sfccdpos[0], N.array([7,7]))
 		#print "sf #%d mean: %g" % (0, _subfield.mean()),
-		print diffmap.max(), diffmap.min(), diffmap.mean()
+		#print diffmap.max(), diffmap.min(), diffmap.mean()
 		diffmap = diffmap.astype(N.float32)
-		print libshifts.quadInt2dWeave(diffmap, range=N.array([7,7]), limit=N.array([7,7]))
-		
+		pyshift.append(libshifts.quadInt2dWeave(diffmap, range=N.array([7,7]), limit=N.array([7,7])))
+	pyshift = N.array(pyshift)
 	
-	datr = _libshifts.calcShifts(img, saccdpos, saccdsize, sfccdpos, sfccdsize, N.array([7,7]))
+	end = time.time()
+	for sa in xrange(nsa):
+		print "diff @ sa %d:" % (sa), datr['shifts'][0][sa][0] - pyshift[sa]
+	
+	print "C took: %g sec, Python took %g." % (beg2-beg1, end-beg2)
 	
 
 
