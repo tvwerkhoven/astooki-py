@@ -115,6 +115,7 @@ Saopt options
      --rad=RAD               radius of the subaperture pattern, used for 
                                plotting [1024]
 Saupd options
+     --mf=FILEPATH           mask to update
      --offsets=FILE          file holding offset vectors for all subapertures
 
 Shifts options
@@ -122,6 +123,11 @@ Shifts options
      --safile=FILEPATH       subaperture locations, same format as maskfile
      --sffile=FILEPATH       subfield locations w.r.t. subaperture locations
  -n, --nref=INT              number of references to use [4]
+
+Procshifts options
+     --safile=FILEPATH       subaperture locations, same format as maskfile
+     --sffile=FILEPATH       subfield locations w.r.t. subaperture locations
+     --shifts=FILE           shift measurements
 
 Tomo options
      --shifts=FILE           shift measurements
@@ -212,6 +218,8 @@ _itype = N.int32
 ### ==========================================================================
 
 def main(argv=None):
+	#print "Sleeping, attach debuggers now."
+	#time.sleep(10)
 	beg = time.time()
 	# Parse command-line options from sys.argv
 	(tool, params, files) = parse_options()
@@ -234,13 +242,13 @@ def main(argv=None):
 	
 	# done
 	dur = time.time() - beg
-	log.prNot(log.NOTICE, "Complete %d" % (dur)
+	log.prNot(log.NOTICE, "Completed in %g seconds." % (dur))
 	return 0
 
 
 def parse_options():
 	"""
-	Process command-line options. See help_message for possible options
+	Process command-line options. See help_message for possible options.
 	"""
 	
 	argv = sys.argv
@@ -483,7 +491,9 @@ def check_params(tool, params):
 			heights = []
 			for hran in params['layerheights']:
 				heights.append(hran.split('-'))
+				print heights[-1]
 			params['layerheights'] = N.array(heights).astype(N.float)
+			print params['layerheights']
 		except: 
 			log.prNot(log.ERR, "layerheights invalid, should be <float>-<float>,<float>-<float>,....")
 	
@@ -579,11 +589,16 @@ class Tool(object):
 				if os.path.isfile(val):
 					f = os.path.basename(val)
 					uri = os.path.join(self.outdir, f)
-					lf.saveOldFile(uri)
-					if (os.path.getsize(val) < 1024*1024):
+					#lf.saveOldFile(uri)
+					if (os.path.getsize(val) < 1024*1024 and not os.path.exists(uri)):
 						import shutil
 						shutil.copy2(val, uri)
 						#os.link(val, uri)
+		# Init list of output files we save
+		self.ofiles = {}
+		self.ofiles['params'] = lf.saveData(self.mkuri('astooki-params'), \
+		 	params, aspickle=True)
+		
 	
 	
 	def load(self, filename):
@@ -739,7 +754,6 @@ class Tool(object):
 		log.prNot(log.INFO, "Masking image if necessary, res: %d,%d" % \
 		 	(tuple(self.origres)))
 		self.__initmask(self.origres)
-		data[self.mask == False] = N.min(data[self.mask])
 		if (self.norm):
 			# Normalize data per subapt
 			for p in self.saccdpos:
@@ -761,6 +775,8 @@ class Tool(object):
 					p[0]:p[0]+size[0]] /= avg
 				log.prNot(log.INFO, "maskimg(): normalizing, avg: %.3g" % (avg))
 		
+		# Normalize everything outside the mask
+		data[self.mask == False] = N.max(data[self.mask])
 		return data
 	
 	
@@ -813,13 +829,14 @@ class SubaptConfTool(Tool):
 			self.xoff, self.disp, self.scale)
 		# Save to file
 		tmp = os.path.splitext(self.file)
-		libsh.saveSaSfConf(tmp[0]+'-origin'+tmp[1], nsa, [-1,-1], size, llpos)
-		libsh.saveSaSfConf(tmp[0]+'-centroid'+tmp[1], nsa, [-1,-1], size, cpos)
+		libsh.saveSaSfConf(self.mkuri(tmp[0]+'-origin'+tmp[1]), nsa, [-1,-1], \
+		 	size, llpos)
+		libsh.saveSaSfConf(self.mkuri(tmp[0]+'-centroid'+tmp[1]), nsa, [-1,-1], \
+		 	size, cpos)
 		if (self.plot):
 			import libplot
 			plrange = [list(N.array([-self.rad, self.rad]) + self.disp)]*2
-			print plrange
-			libplot.showSaSfLayout(tmp[0]+'-plot.eps', llpos, size, \
+			libplot.showSaSfLayout(self.mkuri(self.file+'-plot.eps'), llpos, size, \
 				plrange=plrange)
 		# Done
 		
@@ -840,7 +857,7 @@ class SubfieldConfTool(Tool):
 		self.border = params['border']
 		
 		if params['file']: self.file = params['file']
-		else: self.file = './astooki-subfieldconf.csv'
+		else: self.file = 'astooki-subfieldconf.csv'
 		
 		self.run()
 	
@@ -849,25 +866,25 @@ class SubfieldConfTool(Tool):
 		# Generate subfield positions
 		effsize = self.sasize - 2*self.border
 		pitch = self.sfsize * (1-self.overlap)
-		nsf = effsize / pitch
-		nsf = N.round(nsf-1)
+		nsf = N.floor(effsize / pitch)
 		effpitch = effsize/(nsf+1)
+		log.prNot(log.INFO, "Effective size: (%g,%g), pitch: (%g,%g)" % \
+		 	(tuple(effsize) + tuple(pitch)))
+		print nsf
 		
 		sfpos = self.border + \
 			N.indices(nsf, dtype=N.float).reshape(2,-1).T * effpitch
-		sfpos = N.round(sfpos).astype(N.int32)
+		sfpos = N.floor(sfpos).astype(N.int32)
 		totnsf = N.product(nsf).astype(N.int32)
 		
 		log.prNot(log.NOTICE, "Found %d x %d subfields." % tuple(nsf))
 		log.prNot(log.NOTICE, "Size %d,%d" % tuple(self.sfsize))
-		libsh.saveSaSfConf(self.file, totnsf, [-1,-1], self.sfsize, sfpos)
+		libsh.saveSaSfConf(self.mkuri(self.file), totnsf, [-1,-1], self.sfsize, \
+		 	sfpos)
 		if (self.plot):
 			import libplot
-			# TODO: fix this, splitting does not work correctly when files have 
-			# multiple dots (2009.04.05-mask.csv)
-			plfile = os.path.splitext(self.file)[0]+'-plot.eps'
-			libplot.showSaSfLayout(plfile, sfpos, self.sfsize, \
-				plrange=[[0, self.sasize[0]], [0, self.sasize[1]]])
+			libplot.showSaSfLayout(self.mkuri(self.file+'-plot.eps'), sfpos, \
+			 	self.sfsize, plrange=[[0, self.sasize[0]], [0, self.sasize[1]]])
 		# Done
 		
 	
@@ -903,10 +920,11 @@ class SubaptUpdateTool(Tool):
 		# Crop the subaperture size by twice the maximum offset
 		newsize = (size - maxsh*2).astype(N.int32)
 		# Store
-		libsh.saveSaSfConf(self.file, nsa, [-1,-1], newsize, newpos)
+		libsh.saveSaSfConf(self.mkuri(self.file), nsa, [-1,-1], newsize, newpos)
 		if (self.plot):
 			import libplot
-			plfile = os.path.splitext(self.file)[0]+'-plot.eps'
+			plfile = self.mkuri(self.file + '-plot.eps')
+			# TODO: fix this range
 			plran = [[0, N.ceil(1600./512)*512]]*2
 			libplot.showSaSfLayout(plfile, newpos, newsize, \
 				plrange=plran)
@@ -937,11 +955,11 @@ class SubaptOptTool(Tool):
 		# Optimize pattern
 		(onsa, opos, osize) = libsh.optSubapConf(flatimg, pos, size, self.saifac)
 		# Save to file
-		libsh.saveSaSfConf(self.file, onsa, [-1,-1], osize, opos)
+		libsh.saveSaSfConf(self.mkuri(self.file), onsa, [-1,-1], osize, opos)
 		if (self.plot):
 			import libplot
-			plfile = os.path.splitext(self.file)[0]+'-plot.eps'
-			libplot.showSaSfLayout(plfile, opos, osize, \
+			# TODO: fix this range
+			libplot.showSaSfLayout(self.mkuri(self.file+'-plot.eps'), opos, osize, \
 				plrange=[[0, 2*self.rad]]*2)
 		# Done
 	
@@ -985,7 +1003,6 @@ class ShiftTool(Tool):
 		allrefs = []
 		for f in self.files:
 			base = os.path.basename(f)
-			log.prNot(log.NOTICE, "Measuring shifts for %s." % (base))
 			# Load file
 			img = self.load(f)
 			if (img is None): 
@@ -997,6 +1014,7 @@ class ShiftTool(Tool):
 			
 			# Measure shift
 			refaps = []
+			log.prNot(log.NOTICE, "Measuring shifts for %s." % (base))
 			imgshifts = ls.calcShifts(dfimg, self.saccdpos, self.saccdsize, \
 			 	self.sfccdpos, self.sfccdsize, method=ls.COMPARE_ABSDIFFSQ, \
 			 	extremum=ls.EXTREMUM_2D9PTSQ, refmode=ls.REF_BESTRMS, \
@@ -1009,34 +1027,31 @@ class ShiftTool(Tool):
 		log.prNot(log.NOTICE, "Done, saving results to disk @ '%s'." % (self.file))
 		allshifts = N.array(allshifts)
 		# Store the list of files where we save data to
-		files = {}
-		files['shifts'] = lf.saveData(self.mkuri(self.file + '-shifts'), \
+		
+		self.ofiles['shifts'] = lf.saveData(self.mkuri(self.file + '-shifts'), \
 		 	allshifts, asnpy=True, asfits=True)
-		files['refaps'] = lf.saveData(self.mkuri(self.file + '-refaps'), \
+		self.ofiles['refaps'] = lf.saveData(self.mkuri(self.file + '-refaps'), \
 			allrefs, asnpy=True, ascsv=True)
-		files['saccdpos'] = lf.saveData(self.mkuri(self.file + '-saccdpos'), \
-			self.saccdpos, asnpy=True)
-		files['sfccdpos'] = lf.saveData(self.mkuri(self.file + '-sfccdpos'), \
-		 	self.sfccdpos, asnpy=True)
-		files['saccdsize'] = lf.saveData(self.mkuri(self.file + '-saccdsize'), \
-		 	self.saccdsize, asnpy=True)
-		files['sfccdsize'] = lf.saveData(self.mkuri(self.file + '-sfccdsize'), \
-		 	self.sfccdsize, asnpy=True)
+		self.ofiles['saccdpos'] = lf.saveData(self.mkuri(\
+			self.file + '-saccdpos'), self.saccdpos, asnpy=True, asfits=True)
+		self.ofiles['sfccdpos'] = lf.saveData(self.mkuri(\
+			self.file + '-sfccdpos'), self.sfccdpos, asnpy=True, asfits=True)
+		self.ofiles['saccdsize'] = lf.saveData(self.mkuri(\
+			self.file + '-saccdsize'), self.saccdsize, asnpy=True, asfits=True)
+		self.ofiles['sfccdsize'] = lf.saveData(self.mkuri(\
+			self.file + '-sfccdsize'), self.sfccdsize, asnpy=True, asfits=True)
 		cpos = self.saccdpos.reshape(-1,1,2) + self.sfccdpos.reshape(1,-1,2) + \
 			self.sfccdsize.reshape(1,1,2)/2.0
-		files['sasfpos-c'] = lf.saveData(self.mkuri(self.file + '-sasfpos-c'), \
-		 	cpos, asnpy=True, asfits=True)
-		files['files'] = lf.saveData(self.mkuri(self.file + '-files'), \
+		self.ofiles['sasfpos-c'] = lf.saveData(self.mkuri(\
+			self.file + '-sasfpos-c'), cpos, asnpy=True, asfits=True)
+		self.ofiles['files'] = lf.saveData(self.mkuri(self.file + '-files'), \
 		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')
 		# Add meta info
-		files['path'] = os.path.dirname(os.path.realpath(self.file))
-		files['base'] = os.path.basename(self.file)
+		self.ofiles['path'] = os.path.dirname(os.path.realpath(self.file))
+		self.ofiles['base'] = os.path.basename(self.file)
 		
-		metafile = lf.saveData(self.mkuri(self.file + '-meta'), \
-			files, aspickle=True)
-		# If we have only one subfield, also calculate 'static' shifts
-
-
+		metafile = lf.saveData(self.mkuri('astooki-meta-data'), \
+			self.ofiles, aspickle=True)
 	
 
 
@@ -1306,67 +1321,61 @@ class ProcShiftsTool(Tool):
 	"""Process shift data"""
 	def __init__(self, files, params):
 		super(ProcShiftsTool, self).__init__(files, params)
+		self.safile = params['safile']
+		self.sffile = params['sffile']
+		self.shfile = params['shifts']
+		# Load safile and sffile
+		(self.nsa, self.saccdpos, self.saccdsize) = \
+			libsh.loadSaSfConf(self.safile)
+		(self.nsf, self.sfccdpos, self.sfccdsize) = \
+			libsh.loadSaSfConf(self.sffile)
+		# Load shifts
+		self.shifts = lf.loadData(self.shfile, asnpy=True)
 		self.run()
 	
 	
 	def run(self):
-		for f in self.files:
-			# Try to load pickle file
-			log.prNot(log.NOTICE, "Processing meta file %s" % (f))
-			(data, metafiles) = lf.restoreData(f)
-			# Make sure we have the right data
-			try: sfccdpos = data['sfccdpos']
-			except: log.prNot(log.ERR, "'sfccdpos' not found in data.")
-			try: saccdpos = data['saccdpos']
-			except: log.prNot(log.ERR, "'saccdpos' not found in data.")
-			try: sfccdsize = data['sfccdsize']
-			except: log.prNot(log.ERR, "'sfccdsize' not found in data.")
-			try: saccdsize = data['saccdsize']
-			except: log.prNot(log.ERR, "'saccdsize' not found in data.")
-			try: allshifts = data['shifts']
-			except: log.prNot(log.ERR, "'allshifts' not found in data.")
-			
-			# Process NaNs and other non-finite numbers
-			notfin = N.argwhere(N.isfinite(allshifts) == False)
-			notfin_perc = notfin.shape[0]*100./allshifts.size
-			log.prNot(log.NOTICE, "%d (%.2g%%) non-finite entries, spread over %d frames, %d subaps, %d subfields." % \
-			 	(notfin.shape[0], notfin_perc, N.unique(notfin[:,0]).size, \
-			 	N.unique(notfin[:,2]).size, N.unique(notfin[:,3]).size))
-			#log.prNot(log.NOTICE, "Worst frame: %d with %d non-finite entries." % \
-			#	N.bincount(notfin[:,0])
-			if (notfin_perc > 0.5):
-				log.prNot(log.WARNING, "Percentage of non-finite entries very high!")
-			metafiles['notfinite'] = lf.saveData(self.mkuri(data['base'] + \
-			 	'-notfinite'), notfin, ascsv=True, asnpy=True)
-			
-			# Make a list of all finite frames by excluding all non-finite frames
-			# NB: does not work properly, throws away too much data. How to repair
-			# NaNs? Why do we get NaNs in the first place?
-			finframes = range(allshifts.shape[0])
-			for i in (N.unique(notfin[:,0]))[::-1]: finframes.pop(i)
-			allshifts_fin = allshifts[finframes]
-			
-			# If we have one subfield, treat it as static shift data:
-			if (len(sfccdpos) == 1):
-				log.prNot(log.NOTICE, "Calculating static offsets.")
-				(soff, sofferr) = libsh.procStatShift(allshifts_fin[:,:,:,0,:])
-				metafiles['offsets'] = lf.saveData(self.mkuri(data['base'] + \
-				 	'-offset'), soff, asnpy=True, ascsv=True)
-				metafiles['offset-err'] = lf.saveData(self.mkuri(data['base'] + \
-				 	'-offset-err'), sofferr, asnpy=True, ascsv=True)
-				if (self.plot):
-					import libplot
-					libplot.plotShifts(data['base'] + '-offset-plot', allshifts_fin, \
-						saccdpos, saccdsize, sfccdpos, sfccdsize, \
-						plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=False, \
-					 	title='Static offsets for' + data['base'] +', mag=7', legend=True)	
-			# We have subfield data here, process
-			else:
-				pass
-			
-			# Store the new meta file
-			lf.saveData(f, metafiles, aspickle=True, explicit=True)
-			
+		# Process NaNs and other non-finite numbers
+		notfin = N.argwhere(N.isfinite(self.shifts) == False)
+		notfin_perc = notfin.shape[0]*100./self.shifts.size
+		log.prNot(log.NOTICE, "%d (%.2g%%) non-finite entries, spread over %d frames, %d subaps, %d subfields." % \
+		 	(notfin.shape[0], notfin_perc, N.unique(notfin[:,0]).size, \
+		 	N.unique(notfin[:,2]).size, N.unique(notfin[:,3]).size))
+		#log.prNot(log.NOTICE, "Worst frame: %d with %d non-finite entries." % \
+		#	N.bincount(notfin[:,0])
+		if (notfin_perc > 0.5):
+			log.prNot(log.WARNING, "Percentage of non-finite entries very high!")
+		self.ofiles['notfinite'] = lf.saveData(self.mkuri('nonfinite-shifts'), \
+		 	notfin, ascsv=True, asnpy=True)
+		
+		# Make a list of all finite frames by excluding all non-finite frames
+		# NB: does not work properly, throws away too much data. How to repair
+		# NaNs? Why do we get NaNs in the first place?
+		finframes = range(self.shifts.shape[0])
+		for i in (N.unique(notfin[:,0]))[::-1]: finframes.pop(i)
+		self.shifts = self.shifts[finframes]
+		
+		# If we have one subfield, treat it as static shift data:
+		if (len(self.sfccdpos) == 1):
+			log.prNot(log.NOTICE, "Calculating static offsets.")
+			(soff, sofferr) = libsh.procStatShift(self.shifts[:,:,:,0,:])
+			self.ofiles['offsets'] = lf.saveData(self.mkuri('static-offsets'), \
+				soff, asnpy=True, ascsv=True)
+			self.ofiles['offset-err'] = lf.saveData(\
+				self.mkuri('static-offset-err'), sofferr, asnpy=True, ascsv=True)
+			if (self.plot):
+				import libplot
+				libplot.plotShifts(self.mkuri('static-offset-plot'), self.shifts, \
+					self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
+					plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=False, \
+				 	title='Static offsets, mag=7', legend=True)
+		# We have subfield data here, process
+		else:
+			log.prNot(log.WARNING, "Cannot process this data, not in the proper format.")
+		
+		# Store the new meta file
+		metafile = lf.saveData(self.mkuri('astooki-meta-data'), \
+			self.ofiles, aspickle=True)
 	
 
 
@@ -1387,12 +1396,12 @@ class TomoTool(Tool):
 		# Telescope aperture radius
 		self.aptr = params['aptr']
 		# Geometry (layer heights and number of cells)
-		nlay = params['nheights']
+		self.nlay = params['nheights']
 		lh = params['layerheights']
 		self.lcells = params['layercells']
-		self.geoms = N.zeros((N.product(nlay), len(nlay)))
-		self.origs = N.zeros((N.product(nlay), len(nlay)))
-		self.sizes = N.zeros((N.product(nlay), len(nlay)))
+		self.geoms = N.zeros((N.product(self.nlay), len(self.nlay)))
+		self.origs = N.zeros((N.product(self.nlay), len(self.nlay)))
+		self.sizes = N.zeros((N.product(self.nlay), len(self.nlay)))
 		# Calculate effective (subfield) FoV 
 		self.fov = (N.max(self.sfccdpos + self.sfsize, axis=0) - \
 			N.min(self.sfccdpos, axis=0)) * self.ccdres 
@@ -1402,19 +1411,29 @@ class TomoTool(Tool):
 		self.sfang -= N.mean(self.sfang, axis=0)
 		
 		# Setup all layer configurations
-		for l in range(len(nlay)):
-			thisHeights = N.linspace(lh[l,0], lh[l,1], nlay[l])
+		for l in range(len(self.nlay)):
+			thisHeights = N.linspace(lh[l,0], lh[l,1], self.nlay[l])
 			# All height permutations such that we can loop over them
 			self.geoms[:, l] = N.tile(\
-				N.repeat(thisHeights, N.product(nlay[l+1:])), N.product(nlay[:l]))
+				N.repeat(thisHeights, N.product(self.nlay[l+1:])), \
+				 	N.product(self.nlay[:l]))
 		
+		# Layer origin and sizes
 		telang = [0.0, 0.0]
-		self.lorigs = self.geoms.reshape(N.product(nlay), \
-			 	len(nlay), 1) * N.tan(telang).reshape(1,1,2)
+		self.lorigs = self.geoms.reshape(N.product(self.nlay), \
+			 	len(self.nlay), 1) * N.tan(telang).reshape(1,1,2)
 		self.lsizes = self.aptr + \
-				self.geoms.reshape(N.product(nlay), len(nlay), 1)*\
+				self.geoms.reshape(N.product(self.nlay), len(self.nlay), 1)*\
 				N.tan(0.5 * self.fov).reshape(1,1,2)
-		log.prNot(log.NOTICE, "Starting tomographical analysis of WFWFS data stored in '%s' using %d layers with each %dx%d cells." % (params['shifts'], len(nlay), self.lcells[0], self.lcells[1]))
+		
+		# Allocate data for reconstruction
+		self.recatm = N.zeros((self.shifts.shape[0], N.product(self.nlay), \
+		 	len(self.nlay), self.lcells[0], self.lcells[1], 2), dtype=N.float32)
+		self.inrms = N.zeros((self.shifts.shape[0], 2))
+		self.recrms = N.zeros((self.shifts.shape[0], N.product(self.nlay), 2))
+		self.diffrms = N.zeros((self.shifts.shape[0], N.product(self.nlay), 2))
+		
+		log.prNot(log.NOTICE, "Starting tomographical analysis of WFWFS data stored in '%s' using %d layers with each %dx%d cells." % (params['shifts'], len(self.nlay), self.lcells[0], self.lcells[1]))
 		
 		self.run()
 	
@@ -1422,12 +1441,97 @@ class TomoTool(Tool):
 	def run(self):
 		import libtomo as lt
 		# Setup SVD cache for inverting data
-		print self.shifts.shape
 		svdCache = lt.cacheSvd(self.geoms, self.lsizes, self.lorigs, \
 			self.lcells, self.sasize, self.sapos, self.sfang, self.sffov)
 		# Loop over different reconstruction geometries
-			## Setup input atmosphere
-			## ======================
+		notfin = N.argwhere(N.isfinite(self.shifts) == False)
+		# TODO: setting to zero is a poor solution to NaNs
+		for nfidx in notfin:
+			self.shifts[tuple(nfidx)] = 0.0
+			
+		# Setup inversion and forward matrices from SVD components
+		modmats = {}
+		modmats['inv'] = []
+		modmats['fwd'] = []
+		for geom in range(N.product(self.nlay)):
+		# Setup inversion model matrix
+			modmats['inv'].append(\
+				N.dot(\
+					svdCache[geom]['vh'].T, \
+					N.dot(\
+						svdCache[geom]['s_inv'] *
+							N.identity(len(svdCache[geom]['s_inv'])), \
+							svdCache[geom]['u'].T)))
+			# Setup forward model matrix
+			modmats['fwd'].append(\
+				N.dot(\
+					svdCache[geom]['u'], \
+					N.dot(\
+						svdCache[geom]['s'] *\
+						N.identity(len(svdCache[geom]['s'])), \
+						svdCache[geom]['vh'])))
+		
+		
+		for it in range(self.shifts.shape[0]):
+			log.prNot(log.NOTICE, "Data frame %d/%d" % (it+1, self.shifts.shape[0]))
+			# Average over number of references
+			sh = self.shifts[it].mean(0)
+			# RMS of input shifts:
+			self.inrms[it] = N.r_[self.rms(sh[...,0]), self.rms(sh[...,1])]
+			#log.prNot(log.NOTICE, "Inrms: %g, %g." % tuple(self.inrms[it]))
+			# Vectorize shift measurement
+			wfwfsX = sh[...,0].flatten()
+			wfwfsY = sh[...,1].flatten()
+			for geom in range(N.product(self.nlay)):
+				#log.prNot(log.NOTICE, "Starting reconstruction for geometry %d/%d." % (geom+1, N.product(self.nlay)))
+				# Invert measurements to atmosphere
+				# Reconstruct atmospheric x-slopes in current geometry:
+				self.recatm[it, geom, :, :, :, 0] = \
+				 	(N.dot(modmats['inv'][geom], wfwfsX)).reshape( \
+						len(self.nlay),
+						self.lcells[0],
+						self.lcells[1])
+					
+				# Reconstruct atmospheric y-slopes in current geometry:
+				self.recatm[it, geom, :, :, :, 1] = \
+				 	(N.dot(modmats['inv'][geom], wfwfsY)).reshape( \
+						len(self.nlay),
+						self.lcells[0],
+						self.lcells[1])
+				
+				# Forward calculate all reconstruction to compare model with the 
+				# measurements
+				#print modmats['inv'][geom].shape, wfwfsX.shape, modmats['fwd'][geom].shape, self.recatm[it, geom, :, :, :, 0].shape
+				
+				wfwfsXRec = N.dot(modmats['fwd'][geom], \
+					self.recatm[it, geom, :, :, :, 0].flatten())
+				wfwfsYRec = N.dot(modmats['fwd'][geom], \
+					self.recatm[it, geom, :, :, :, 1].flatten())
+				
+				# Calculate reconstruction RMS
+				self.recrms[it, geom] = N.r_[self.rms(wfwfsXRec), self.rms(wfwfsYRec)]
+				
+				# Calculate difference RMS
+				self.diffrms[it, geom] = N.r_[self.rms(wfwfsXRec - wfwfsX), \
+						self.rms(wfwfsYRec - wfwfsY)]
+				#log.prNot(log.NOTICE, "Recrms: %g, %g, diffrms: %g, %g." % (tuple(self.recrms[it, geom]) + tuple(self.diffrms[it, geom])))
+		
+		log.prNot(log.NOTICE, "Done, saving data.")
+		self.ofiles['inrms'] = lf.saveData(self.mkuri('tomotool-inrms'), \
+		 	self.inrms, asnpy=True, asfits=True)
+		self.ofiles['recrms'] = lf.saveData(self.mkuri('tomotool-recrms'), \
+		 	self.recrms, asnpy=True, asfits=True)
+		self.ofiles['diffrms'] = lf.saveData(self.mkuri('tomotool-diffrms'), \
+		 	self.diffrms, asnpy=True, asfits=True)
+		self.ofiles['geoms'] = lf.saveData(self.mkuri('tomotool-geoms'), \
+		 	self.geoms, asnpy=True, asfits=True)
+		# Save metafile
+		metafile = lf.saveData(self.mkuri('astooki-meta-data'), \
+			self.ofiles, aspickle=True)
+
+	
+	def rms(self, data):
+		return N.sqrt(N.mean(data**2.0))
 
 	
 

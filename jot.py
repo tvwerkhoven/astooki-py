@@ -167,3 +167,41 @@ for r in xrange(subsh.shape[1]):
 	subsh[f, r, :, :, :] -= avg.reshape(1,1,2)
 
 
+### Analyze tomographic inversion data
+### ==================================
+
+import libfile as lf
+import pylab
+
+dat, meta = lf.restoreData('astooki-meta-data.pickle')
+
+inrms = dat['inrms'][:750]
+diffrms = dat['diffrms'][:750]
+recrms = dat['recrms'][:750]
+
+pylab.cla()
+pylab.plot(inrms[:,0])
+pylab.plot(recrms[:,:,0].mean(1))
+pylab.plot(diffrms[:,:,0].mean(1))
+
+# take only until frame 750
+diffrms_a = diffrms.mean(0)
+diffrms_s = diffrms.std(0)
+recrms_a = recrms.mean(0)
+recrms_s = recrms.std(0)
+
+pylab.figure()
+pylab.plot(diffrms_a[:,0])
+pylab.plot(diffrms_a[:,1])
+# pylab.errorbar(range(diffrms.shape[1]), diffrms_a[:,0], yerr=diffrms_s[:,0], fmt='o')
+# pylab.errorbar(range(diffrms.shape[1]), diffrms_a[:,1], yerr=diffrms_s[:,1], fmt='o')
+
+pylab.figure()
+pylab.plot(recrms_a[:,0])
+pylab.plot(recrms_a[:,1])
+# pylab.errorbar(range(recrms.shape[1]), recrms_a[:,0], yerr=recrms_a[:,0], fmt='o')
+# pylab.errorbar(range(recrms.shape[1]), recrms_a[:,1], yerr=recrms_a[:,1], fmt='o')
+
+pylab.cla()
+pylab.plot(diffrms_a[:,0])
+pylab.plot(recrms_a[:,0])

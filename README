@@ -68,18 +68,42 @@ Purpose: tomographically analyze differential image shifts
 
 * Todo
 
-- 20090514: configfile support
-- 20090514: calculate layer sizes at each height (need tel fov?)
 - 20090514: take telescope angle into account
-- 20090514: 
-  Need to know for Tomo
-  -> layer heights (for each geom ())
-  -> layer sizes (for each geom f(heights))
-  -> layer cells (for each geom f())
-  -> layer origins (for each geom, f(tel pointing))
-  -> subap position, size: gives (meta-) apertures
-  -> subfield position, size: gives subfield pointing, fov
-  ->
+- 20090517: remove average shift from subfield shift per subfield, does this 
+			matter for tomo inversion?
+- 20090517: inspect shift and reconstructed shift manually
+- 20090518: check cross-correlation, something is going wrong:
+
+703			for (sh0=sh0min; sh0 <= sh0max; sh0++) {
+704				for (sh1=sh1min; sh1 <= sh1max; sh1++) {
+705					tmpsum = 0.0;
+706					for (j=0; j<imgsize[1]; j++) {
+707						for (i=0; i<imgsize[0]; i++) {
+708							tmpsum += \
+709								fabsf(img[j*imstride + i] - ref[(j+sh0)*refstride + i+sh1]);
+710						}
+711					}
+712					//printf("diffmap @ %d: %d,%d", 
+(gdb) print tmpsum
+$1 = nan(0xfffffe0000000)
+(gdb) print img[j*imstride + i] - ref[(j+sh0)*refstride + i+sh1] 
+Cannot access memory at address 0x7fff976ec110
+(gdb) print img[j*imstride + i]                                 
+$2 = 0.955569386
+(gdb) print ref[(j+sh0)*refstride + i+sh1]
+Cannot access memory at address 0x7fff976ec110
+(gdb) print (j+sh0)*refstride + i+sh1 
+$3 = 27056
+(gdb) print (j+sh0)*refstride        
+$4 = 27054
+(gdb) print (j+sh0)          
+$5 = 162
+(gdb) print i+sh1  
+$6 = 2
+(gdb) print refstride
+$7 = 167
+
+- '(j+sh0)*refstride' is the wrong way around?
 
 * Known issues
 
