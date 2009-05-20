@@ -166,9 +166,388 @@ for r in xrange(subsh.shape[1]):
 	avg = N.mean(subsh[f, r, :, :, :].reshape(-1,2), axis=0)
 	subsh[f, r, :, :, :] -= avg.reshape(1,1,2)
 
+### ==========================================================================
+### Analyze shift data
+### ==========================================================================
 
+
+import numpy as N
+import pylab
+
+newsh = N.load('2009.04.28-run05_wfwfs_test_im28Apr2009_1-999-shifts.npy')
+oldsh = N.load('2009.04.28-run05_wfwfs_test_im28Apr2009_1-999-shifts.npy.old0')
+
+print newsh.shape, oldsh.shape
+
+diff = oldsh[:,0,40,0] - newsh[:,0,40,0]
+pylab.figure()
+pylab.plot(diff[0], diff[1], 'o')
+
+pylab.figure()
+sa = 42
+pylab.plot(newsh[:,0,sa,0,0], newsh[:,0,sa,0,1], 'o')
+pylab.plot(newsh[:,1,sa,0,0], newsh[:,1,sa,0,1], 'o')
+pylab.plot(newsh[:,2,sa,0,0], newsh[:,2,sa,0,1], 'o')
+pylab.plot(newsh[:,3,sa,0,0], newsh[:,3,sa,0,1], 'o')
+
+pylab.figure()
+sa = 42
+r1 = 0
+r2 = 3
+diffx = (newsh[:,r1,sa,0,0] - N.mean(newsh[:,r1,sa,0,0])) - \
+	(newsh[:,r2,sa,0,0] - N.mean(newsh[:,r2,sa,0,0]))
+diffy = (newsh[:,r1,sa,0,1] - N.mean(newsh[:,r1,sa,0,1])) - \
+	(newsh[:,r2,sa,0,1] - N.mean(newsh[:,r2,sa,0,1]))
+pylab.plot(diffx, diffy, 'o')
+
+# Now average over the different references
+nref = newsh.shape[1]
+for i in range(nref):
+	newsh[:,i,:,0,:] -= newsh[:,i,:,0,:].mean(1).reshape(-1,1,2)
+newsh_a = newsh.mean(1)
+print newsh_a.shape
+
+pylab.figure()
+sa = 42
+pylab.plot(newsh_a[:,sa,0,0], newsh_a[:,sa,0,1], 'o')
+
+
+### ==========================================================================
+### Inspect tomographic inversion data
+### ==========================================================================
+
+# Settings
+# ==================================
+
+import numpy as N
+import libfile as lf
+import liblog as log
+log.VERBOSITY +=2
+import libsh
+import libtomo as lt
+import pylab
+
+def rms(data, remdc=False):
+if remdc:
+return N.sqrt(N.mean((data-N.mean(data))**2.0))
+else:
+return N.sqrt(N.mean(data**2.0))
+
+
+# Files
+ddir = '/Users/tim/workdocs/data/wfwfs/sst/2009.04.28-run05/proc/'
+shfile = ddir + 'subshift-20x20/2009.04.28-run05_wfwfs_test_im28Apr2009_1-999-shifts.npy'
+safile = ddir + 'samask/2009.04.28-run05-samask-ll-centroid.csv'
+sffile = ddir + 'sfmask/2009.04.28-run05-sfmask-20x20.csv'
+# Settings
+aptr = 0.49
+ccdres = 0.35 * N.pi /60./60./180.
+nlay = N.array([10])
+lh = N.array([[5000, 15000]])
+lcells = N.array([8,8])
+
+# Load data
+shifts = lf.loadData(shfile, asnpy=True)
+(nsa, sapos, sasize) = libsh.loadSaSfConf(safile)
+(nsf, sfccdpos, sfsize) = libsh.loadSaSfConf(sffile)
+
+# Setup configuration
+geoms = N.zeros((N.product(nlay), len(nlay)))
+origs = N.zeros((N.product(nlay), len(nlay)))
+sizes = N.zeros((N.product(nlay), len(nlay)))
+fov = (N.max(sfccdpos + sfsize, axis=0) - N.min(sfccdpos, axis=0)) * ccdres 
+sffov = sfsize * ccdres
+sfang = (sfccdpos + sfsize/2.0) * ccdres
+sfang -= N.mean(sfang, axis=0)
+
+# Setup all layer configurations
+for l in range(len(nlay)):
+	thisHeights = N.linspace(lh[l,0], lh[l,1], nlay[l])
+	geoms[:, l] = N.tile(\
+		N.repeat(thisHeights, N.product(nlay[l+1:])), N.product(nlay[:l]))
+
+# Layer origin and sizes
+telang = [0.0, 0.0]
+lorigs = geoms.reshape(N.product(nlay), \
+	 	len(nlay), 1) * N.tan(telang).reshape(1,1,2)
+lsizes = aptr + \
+		geoms.reshape(N.product(nlay), len(nlay), 1)*\
+		N.tan(0.5 * fov).reshape(1,1,2)
+
+# Allocate data for reconstruction
+#recatm = N.zeros((shifts.shape[0], N.product(nlay), \
+# 	len(nlay), lcells[0], lcells[1], 2), dtype=N.float32)
+#inrms = N.zeros((shifts.shape[0], 4))
+#recrms = N.zeros((shifts.shape[0], N.product(nlay), 4))
+#diffrms = N.zeros((shifts.shape[0], N.product(nlay), 4))
+
+# Process data
+# ==================================
+
+svdCache = lt.cacheSvd(geoms, lsizes, lorigs, lcells, sasize, sapos, sfang, \
+ 	sffov, matroot='/Users/tim/workdocs/data/matrices/')
+
+# notfin = N.argwhere(N.isfinite(shifts) == False)
+# if (notfin.shape[0] > 0):
+# 	log.prNot(log.WARNING, "Some measurements are non-finite, check configuration!")			
+# 	# TODO: setting to zero is a poor solution to NaNs
+# 	for nfidx in notfin:
+# 		shifts[tuple(nfidx)] = 0.0
+
+# Setup inversion and forward matrices from SVD components
+modmats = {}
+modmats['inv'] = []
+modmats['fwd'] = []
+log.prNot(log.NOTICE, "Pre-computing inversion and forward matrices...")
+
+for geom in range(N.product(nlay)):
+	# Setup inversion model matrix
+	modmats['inv'].append(\
+		N.dot(\
+			svdCache[geom]['vh'].T, \
+			N.dot(\
+				svdCache[geom]['s_inv'] *
+					N.identity(len(svdCache[geom]['s_inv'])), \
+					svdCache[geom]['u'].T)))
+	# Setup forward model matrix
+	modmats['fwd'].append(\
+		N.dot(\
+			svdCache[geom]['u'], \
+			N.dot(\
+				svdCache[geom]['s'] *\
+				N.identity(len(svdCache[geom]['s'])), \
+				svdCache[geom]['vh'])))
+
+
+# Average over number of references
+#shifts_a = shifts.mean(axis=1)
+# Remove average over all frames
+# shifts_aa = shifts_a - N.mean(shifts_a, axis=0).reshape(1, shifts_a.shape[1], shifts_a.shape[2], 2)
+
+# Process one shift set
+it = 400
+sh = shifts[it]
+# Average over reference
+sh = sh.mean(0)
+# Set sa 81 and 84 to zero, bad subaps
+sh[81] = 0
+sh[84] = 0
+# Set average over all subaps to zero
+sh -= sh.mean(0).reshape(1, -1, 2)
+# APPLY TIP-TILT CORRECTION (DO NOT USE IN REAL ANALYSIS)
+sh -= sh.mean(1).reshape(-1, 1, 2)
+log.prNot(log.NOTICE, "Data frame %d/%d" % (it+1, shifts.shape[0]))
+
+inrms = N.r_[\
+	rms(sh[...,0]), \
+	rms(sh[...,1]), \
+	rms(sh[...,0], remdc=True), \
+	rms(sh[...,1], remdc=True)]
+
+wfwfsX = sh[...,0].flatten()
+wfwfsY = sh[...,1].flatten()
+
+recatm = []
+wfwfsRec = []
+recrms = []
+diffrms = []
+
+for geom in range(N.product(nlay)):
+	recatm.append( \
+		N.array([\
+			(N.dot(modmats['inv'][geom], wfwfsX)).reshape( \
+				len(nlay), lcells[0], lcells[1]), \
+			(N.dot(modmats['inv'][geom], wfwfsY)).reshape( \
+						len(nlay), lcells[0], lcells[1])\
+		]))
+	print recatm[-1].shape
+	wfwfsRec.append( \
+		N.array([\
+			N.dot(modmats['fwd'][geom], \
+				recatm[-1][0].flatten()), \
+			N.dot(modmats['fwd'][geom], \
+				recatm[-1][1].flatten()) \
+		]))
+	print wfwfsRec[-1].shape
+	recrms.append(N.r_[\
+		rms(wfwfsRec[-1][0]), \
+		rms(wfwfsRec[-1][1]), \
+		rms(wfwfsRec[-1][0], remdc=True), \
+		rms(wfwfsRec[-1][1], remdc=True)])
+	diffrms.append(N.r_[\
+		rms(wfwfsRec[-1][0]-wfwfsX),\
+		rms(wfwfsRec[-1][1]-wfwfsY),\
+		rms(wfwfsRec[-1][0]-wfwfsX,remdc=True),\
+		rms(wfwfsRec[-1][1]-wfwfsY,remdc=True)])
+
+wfwfsRec = N.array(wfwfsRec)
+recatm = N.array(recatm)
+
+# Plot data
+pylab.figure()
+pylab.plot(sh[:,:,0].flatten(), sh[:,:,1].flatten(), 'x')
+pylab.plot(sh[80,:,0].flatten(), sh[80,:,1].flatten(), 'x')
+pylab.plot(sh[30,:,0].flatten(), sh[30,:,1].flatten(), 'x')
+pylab.plot(sh[81,:,0].flatten(), sh[81,:,1].flatten(), 'x')
+
+pylab.figure()
+pylab.plot(wfwfsX, wfwfsY, 'o')
+pylab.plot(wfwfsRec[0,0], wfwfsRec[0,1], 'o')
+pylab.plot(wfwfsRec[1,0], wfwfsRec[1,1], 'o')
+pylab.plot(wfwfsRec[2,0], wfwfsRec[2,1], 'o')
+pylab.plot(wfwfsRec[3,0], wfwfsRec[3,1], 'o')
+
+pylab.plot(wfwfsX-wfwfsRec[0,0], wfwfsY-wfwfsRec[0,1], 'o')
+
+pylab.figure()
+pylab.plot(wfwfsX)
+pylab.plot(wfwfsRec[0,0]-wfwfsX)
+pylab.plot(wfwfsRec[1,0]-wfwfsX)
+pylab.plot(wfwfsRec[2,0]-wfwfsX)
+pylab.plot(wfwfsRec[3,0]-wfwfsX)
+
+pylab.figure()
+pylab.plot(wfwfsX)
+pylab.plot(wfwfsRec[0,0])
+pylab.plot(wfwfsRec[5,0])
+pylab.plot(wfwfsRec[9,0])
+
+pylab.plot(wfwfsX-wfwfsRec[1,0])
+pylab.plot(wfwfsX-wfwfsRec[2,0])
+pylab.plot(wfwfsX-wfwfsRec[3,0])
+pylab.plot(wfwfsX-wfwfsRec[4,0])
+pylab.plot(wfwfsX-wfwfsRec[5,0])
+
+pylab.figure()
+pylab.plot(recatm[0,0].flatten())
+pylab.plot(recatm[5,0].flatten())
+pylab.plot(recatm[9,0].flatten())
+
+### ==========================================================================
+### Simulate tomographic analysis
+### ==========================================================================
+
+import numpy as N
+import libfile as lf
+import liblog as log
+log.VERBOSITY +=2
+import libsh
+import libtomo as lt
+import pylab
+
+def rms(data, remdc=False):
+if remdc:
+return N.sqrt(N.mean((data-N.mean(data))**2.0))
+else:
+return N.sqrt(N.mean(data**2.0))
+
+
+
+# Files
+ddir = '/Users/tim/workdocs/data/wfwfs/sst/2009.04.28-run05/proc/'
+safile = ddir + 'samask/2009.04.28-run05-samask-ll-centroid.csv'
+sffile = ddir + 'sfmask/2009.04.28-run05-sfmask-20x20.csv'
+# Settings
+aptr = 0.49
+ccdres = 0.35 * N.pi /60./60./180.
+nlay = N.array([1, 10])
+lh = N.array([[0, 0], [0, 10000]])
+lcells = N.array([8,8])
+
+# Load data
+(nsa, sapos, sasize) = libsh.loadSaSfConf(safile)
+(nsf, sfccdpos, sfsize) = libsh.loadSaSfConf(sffile)
+
+# Setup configuration
+geoms = N.zeros((N.product(nlay), len(nlay)))
+fov = (N.max(sfccdpos + sfsize, axis=0) - N.min(sfccdpos, axis=0)) * ccdres 
+sffov = sfsize * ccdres
+sfang = (sfccdpos + sfsize/2.0) * ccdres
+sfang -= N.mean(sfang, axis=0)
+
+
+for l in range(len(nlay)):
+	thisHeights = N.linspace(lh[l,0], lh[l,1], nlay[l])
+	geoms[:, l] = N.tile(N.repeat(thisHeights, N.product(nlay[l+1:])), N.product(nlay[:l]))
+
+
+# Layer origin and sizes
+telang = [0.0, 0.0]
+lorigs = geoms.reshape(N.product(nlay), \
+	 	len(nlay), 1) * N.tan(telang).reshape(1,1,2)
+lsizes = aptr + \
+		geoms.reshape(N.product(nlay), len(nlay), 1)*\
+		N.tan(0.5 * fov).reshape(1,1,2)
+
+# Generate one forward matrix first
+(mat, matc, mattag) = lt.computeFwdMatrix(geoms[1], lsizes[1], lorigs[1], lcells, sasize, sapos, sfang, sffov, matroot='/Users/tim/workdocs/data/matrices/')
+matd = mat-matc
+
+# Generate whole SVD cache
+svdCache = lt.cacheSvd(geoms, lsizes, lorigs, lcells, sasize, sapos, sfang, \
+ 	sffov, matroot='/Users/tim/workdocs/data/matrices/')
+
+
+# Setup inversion and forward matrices from SVD components
+modmats = {}
+modmats['inv'] = []
+modmats['fwd'] = []
+log.prNot(log.NOTICE, "Pre-computing inversion and forward matrices...")
+
+for geom in range(N.product(nlay)):
+	# Setup inversion model matrix
+	modmats['inv'].append(\
+		N.dot(\
+			svdCache[geom]['vh'].T, \
+			N.dot(\
+				svdCache[geom]['s_inv'] *
+					N.identity(len(svdCache[geom]['s_inv'])), \
+					svdCache[geom]['u'].T)))
+	# Setup forward model matrix
+	modmats['fwd'].append(\
+		N.dot(\
+			svdCache[geom]['u'], \
+			N.dot(\
+				svdCache[geom]['s'] *\
+				N.identity(len(svdCache[geom]['s'])), \
+				svdCache[geom]['vh'])))
+
+fakeatm = []
+fakedata = []
+fakerecatm = []
+fakerecdata = []
+
+for geom in range(N.product(nlay)):
+	fakeatm.append(N.random.random((len(nlay), lcells[0], lcells[1])))
+	print fakeatm[-1].shape
+	fakedata.append(N.dot(modmats['fwd'][geom], fakeatm[-1].flatten()))
+	print fakedata[-1].shape
+	fakerecatm.append(N.dot(modmats['inv'][geom], fakedata[-1]).reshape( \
+		len(nlay), lcells[0], lcells[1]))
+	print fakerecatm[-1].shape
+	fakerecdata.append(N.dot(modmats['fwd'][geom], fakerecatm[-1].flatten()))
+
+fakeatm = N.array(fakeatm)
+fakedata = N.array(fakedata)
+fakerecatm = N.array(fakerecatm)
+fakerecdata = N.array(fakerecdata)
+
+# Plot
+atm = 5
+pylab.figure()
+pylab.plot(fakeatm[atm].flatten())
+pylab.plot(fakerecatm[atm].flatten())
+pylab.plot((fakeatm[atm] - fakerecatm[atm]).flatten())
+
+pylab.figure()
+pylab.plot(fakedata[atm].flatten())
+pylab.plot(fakerecdata[atm].flatten())
+pylab.plot((fakedata[atm] - fakerecdata[atm]).flatten())
+
+
+### ==========================================================================
 ### Analyze tomographic inversion data
-### ==================================
+### ==========================================================================
 
 import libfile as lf
 import pylab
@@ -179,12 +558,17 @@ inrms = dat['inrms'][:750]
 diffrms = dat['diffrms'][:750]
 recrms = dat['recrms'][:750]
 
-pylab.cla()
+pylab.figure()
 pylab.plot(inrms[:,0])
 pylab.plot(recrms[:,:,0].mean(1))
 pylab.plot(diffrms[:,:,0].mean(1))
 
-# take only until frame 750
+pylab.figure()
+pylab.plot(inrms[:,0], inrms[:,1], 'o')
+pylab.plot(recrms[:,:,0].mean(1), recrms[:,:,1].mean(1), 'o')
+pylab.plot(diffrms[:,:,0].mean(1), diffrms[:,:,1].mean(1), 'o')
+
+# Average over all frames, exposing the inter-geometry differences
 diffrms_a = diffrms.mean(0)
 diffrms_s = diffrms.std(0)
 recrms_a = recrms.mean(0)
