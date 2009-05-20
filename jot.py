@@ -242,8 +242,8 @@ sffile = ddir + 'sfmask/2009.04.28-run05-sfmask-20x20.csv'
 # Settings
 aptr = 0.49
 ccdres = 0.35 * N.pi /60./60./180.
-nlay = N.array([10])
-lh = N.array([[5000, 15000]])
+nlay = N.array([1, 2])
+lh = N.array([[0,0], [5000, 10000]])
 lcells = N.array([8,8])
 
 # Load data
@@ -450,8 +450,8 @@ sffile = ddir + 'sfmask/2009.04.28-run05-sfmask-20x20.csv'
 # Settings
 aptr = 0.49
 ccdres = 0.35 * N.pi /60./60./180.
-nlay = N.array([1, 10])
-lh = N.array([[0, 0], [0, 10000]])
+nlay = N.array([1, 2])
+lh = N.array([[0, 0], [5000, 10000]])
 lcells = N.array([8,8])
 
 # Load data
@@ -480,8 +480,8 @@ lsizes = aptr + \
 		N.tan(0.5 * fov).reshape(1,1,2)
 
 # Generate one forward matrix first
-(mat, matc, mattag) = lt.computeFwdMatrix(geoms[1], lsizes[1], lorigs[1], lcells, sasize, sapos, sfang, sffov, matroot='/Users/tim/workdocs/data/matrices/')
-matd = mat-matc
+# (mat, matc, mattag) = lt.computeFwdMatrix(geoms[1], lsizes[1], lorigs[1], lcells, sasize, sapos, sfang, sffov, matroot='/Users/tim/workdocs/data/matrices/')
+# matd = mat-matc
 
 # Generate whole SVD cache
 svdCache = lt.cacheSvd(geoms, lsizes, lorigs, lcells, sasize, sapos, sfang, \

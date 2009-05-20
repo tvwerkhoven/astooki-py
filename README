@@ -69,41 +69,11 @@ Purpose: tomographically analyze differential image shifts
 * Todo
 
 - 20090514: take telescope angle into account
-- 20090517: remove average shift from subfield shift per subfield, does this 
-			matter for tomo inversion?
-- 20090517: inspect shift and reconstructed shift manually
-- 20090518: check cross-correlation, something is going wrong:
-
-703			for (sh0=sh0min; sh0 <= sh0max; sh0++) {
-704				for (sh1=sh1min; sh1 <= sh1max; sh1++) {
-705					tmpsum = 0.0;
-706					for (j=0; j<imgsize[1]; j++) {
-707						for (i=0; i<imgsize[0]; i++) {
-708							tmpsum += \
-709								fabsf(img[j*imstride + i] - ref[(j+sh0)*refstride + i+sh1]);
-710						}
-711					}
-712					//printf("diffmap @ %d: %d,%d", 
-(gdb) print tmpsum
-$1 = nan(0xfffffe0000000)
-(gdb) print img[j*imstride + i] - ref[(j+sh0)*refstride + i+sh1] 
-Cannot access memory at address 0x7fff976ec110
-(gdb) print img[j*imstride + i]                                 
-$2 = 0.955569386
-(gdb) print ref[(j+sh0)*refstride + i+sh1]
-Cannot access memory at address 0x7fff976ec110
-(gdb) print (j+sh0)*refstride + i+sh1 
-$3 = 27056
-(gdb) print (j+sh0)*refstride        
-$4 = 27054
-(gdb) print (j+sh0)          
-$5 = 162
-(gdb) print i+sh1  
-$6 = 2
-(gdb) print refstride
-$7 = 167
-
-- '(j+sh0)*refstride' is the wrong way around?
+- 20090519: document routines, workflow, file syntax, coordinate systems
+- 20090519: fix C code for fwdMatrix
+- 20090519: revive tomo simulation with KL modes
+- 20090519: -> why can't we resolve the higher layers?
+- 20090519: calculate r_0 of the data
 
 * Known issues
 

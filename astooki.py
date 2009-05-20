@@ -225,6 +225,7 @@ def main(argv=None):
 	(tool, params, files) = parse_options()
 	# Sanity check on parameters
 	check_params(tool, params)
+	log.prNot(log.NOTICE, "Command: '%s'" % (str(sys.argv)))
 	log.prNot(log.NOTICE, "Parameters: '%s'" % (str(params)))
 	log.prNot(log.NOTICE, "Files prefix: '%s'" % (os.path.commonprefix(files)))
 	# Perform action requested
@@ -1337,23 +1338,12 @@ class ProcShiftsTool(Tool):
 	def run(self):
 		# Process NaNs and other non-finite numbers
 		notfin = N.argwhere(N.isfinite(self.shifts) == False)
-		notfin_perc = notfin.shape[0]*100./self.shifts.size
-		log.prNot(log.NOTICE, "%d (%.2g%%) non-finite entries, spread over %d frames, %d subaps, %d subfields." % \
+		if (notfin.shape[0] > 0):
+			log.prNot(log.WARNING, "Found non-finite shifts! Check configuration.")
+			notfin_perc = notfin.shape[0]*100./self.shifts.size
+			log.prNot(log.WARNING, "%d (%.2g%%) non-finite entries, spread over %d frames, %d subaps, %d subfields." % \
 		 	(notfin.shape[0], notfin_perc, N.unique(notfin[:,0]).size, \
 		 	N.unique(notfin[:,2]).size, N.unique(notfin[:,3]).size))
-		#log.prNot(log.NOTICE, "Worst frame: %d with %d non-finite entries." % \
-		#	N.bincount(notfin[:,0])
-		if (notfin_perc > 0.5):
-			log.prNot(log.WARNING, "Percentage of non-finite entries very high!")
-		self.ofiles['notfinite'] = lf.saveData(self.mkuri('nonfinite-shifts'), \
-		 	notfin, ascsv=True, asnpy=True)
-		
-		# Make a list of all finite frames by excluding all non-finite frames
-		# NB: does not work properly, throws away too much data. How to repair
-		# NaNs? Why do we get NaNs in the first place?
-		finframes = range(self.shifts.shape[0])
-		for i in (N.unique(notfin[:,0]))[::-1]: finframes.pop(i)
-		self.shifts = self.shifts[finframes]
 		
 		# If we have one subfield, treat it as static shift data:
 		if (len(self.sfccdpos) == 1):
@@ -1409,6 +1399,8 @@ class TomoTool(Tool):
 		# Calculate subfield pointing angles, set average to 0
 		self.sfang = (self.sfccdpos + self.sfsize/2.0) * self.ccdres
 		self.sfang -= N.mean(self.sfang, axis=0)
+		# Rotate the coordinate system
+		self.sfang *= N.array([-1.0,-1.0])
 		
 		# Setup all layer configurations
 		for l in range(len(self.nlay)):
@@ -1429,9 +1421,9 @@ class TomoTool(Tool):
 		# Allocate data for reconstruction
 		self.recatm = N.zeros((self.shifts.shape[0], N.product(self.nlay), \
 		 	len(self.nlay), self.lcells[0], self.lcells[1], 2), dtype=N.float32)
-		self.inrms = N.zeros((self.shifts.shape[0], 2))
-		self.recrms = N.zeros((self.shifts.shape[0], N.product(self.nlay), 2))
-		self.diffrms = N.zeros((self.shifts.shape[0], N.product(self.nlay), 2))
+		self.inrms = N.zeros((self.shifts.shape[0], 4))
+		self.recrms = N.zeros((self.shifts.shape[0], N.product(self.nlay), 4))
+		self.diffrms = N.zeros((self.shifts.shape[0], N.product(self.nlay), 4))
 		
 		log.prNot(log.NOTICE, "Starting tomographical analysis of WFWFS data stored in '%s' using %d layers with each %dx%d cells." % (params['shifts'], len(self.nlay), self.lcells[0], self.lcells[1]))
 		
@@ -1442,19 +1434,23 @@ class TomoTool(Tool):
 		import libtomo as lt
 		# Setup SVD cache for inverting data
 		svdCache = lt.cacheSvd(self.geoms, self.lsizes, self.lorigs, \
-			self.lcells, self.sasize, self.sapos, self.sfang, self.sffov)
-		# Loop over different reconstruction geometries
+			self.lcells, self.sasize, self.sapos, self.sfang, self.sffov, \
+			matroot='workdocs/data/matrices/')
+		# Check if values are finite
 		notfin = N.argwhere(N.isfinite(self.shifts) == False)
-		# TODO: setting to zero is a poor solution to NaNs
-		for nfidx in notfin:
-			self.shifts[tuple(nfidx)] = 0.0
-			
+		if (notfin.shape[0] > 0):
+			log.prNot(log.WARNING, "Some measurements are non-finite, check configuration!")			
+			# TODO: setting to zero is a poor solution to NaNs
+			for nfidx in notfin:
+				self.shifts[tuple(nfidx)] = 0.0
+		
 		# Setup inversion and forward matrices from SVD components
 		modmats = {}
 		modmats['inv'] = []
 		modmats['fwd'] = []
+		log.prNot(log.NOTICE, "Pre-computing inversion and forward matrices...")
 		for geom in range(N.product(self.nlay)):
-		# Setup inversion model matrix
+			# Setup inversion model matrix
 			modmats['inv'].append(\
 				N.dot(\
 					svdCache[geom]['vh'].T, \
@@ -1472,12 +1468,19 @@ class TomoTool(Tool):
 						svdCache[geom]['vh'])))
 		
 		
-		for it in range(self.shifts.shape[0]):
-			log.prNot(log.NOTICE, "Data frame %d/%d" % (it+1, self.shifts.shape[0]))
-			# Average over number of references
-			sh = self.shifts[it].mean(0)
+		# Average over number of references
+		shifts = self.shifts.mean(axis=1)
+		# Remove average over all frames
+		shifts -= N.mean(shifts, axis=0).reshape(1, shifts.shape[1], shifts.shape[2], 2)
+		for it in range(shifts.shape[0]):
+			log.prNot(log.NOTICE, "Data frame %d/%d" % (it+1, shifts.shape[0]))
+			sh = shifts[it]
 			# RMS of input shifts:
-			self.inrms[it] = N.r_[self.rms(sh[...,0]), self.rms(sh[...,1])]
+			self.inrms[it] = N.r_[\
+				self.rms(sh[...,0]), \
+				self.rms(sh[...,1]), \
+				self.rms(sh[...,0], remdc=True), \
+				self.rms(sh[...,1], remdc=True)]
 			#log.prNot(log.NOTICE, "Inrms: %g, %g." % tuple(self.inrms[it]))
 			# Vectorize shift measurement
 			wfwfsX = sh[...,0].flatten()
@@ -1509,11 +1512,18 @@ class TomoTool(Tool):
 					self.recatm[it, geom, :, :, :, 1].flatten())
 				
 				# Calculate reconstruction RMS
-				self.recrms[it, geom] = N.r_[self.rms(wfwfsXRec), self.rms(wfwfsYRec)]
+				self.recrms[it, geom] = N.r_[\
+					self.rms(wfwfsXRec), \
+					self.rms(wfwfsYRec), \
+					self.rms(wfwfsXRec, remdc=True), \
+					self.rms(wfwfsYRec, remdc=True)]
 				
 				# Calculate difference RMS
-				self.diffrms[it, geom] = N.r_[self.rms(wfwfsXRec - wfwfsX), \
-						self.rms(wfwfsYRec - wfwfsY)]
+				self.diffrms[it, geom] = N.r_[\
+						self.rms(wfwfsXRec - wfwfsX), \
+						self.rms(wfwfsYRec - wfwfsY), \
+						self.rms(wfwfsXRec - wfwfsX, remdc=True), \
+						self.rms(wfwfsYRec - wfwfsY, remdc=True)]
 				#log.prNot(log.NOTICE, "Recrms: %g, %g, diffrms: %g, %g." % (tuple(self.recrms[it, geom]) + tuple(self.diffrms[it, geom])))
 		
 		log.prNot(log.NOTICE, "Done, saving data.")
@@ -1530,8 +1540,11 @@ class TomoTool(Tool):
 			self.ofiles, aspickle=True)
 
 	
-	def rms(self, data):
-		return N.sqrt(N.mean(data**2.0))
+	def rms(self, data, remdc=False):
+		if remdc:
+			return N.sqrt(N.mean((data-N.mean(data))**2.0))
+		else:
+			return N.sqrt(N.mean(data**2.0))
 
 	
 
