@@ -1,7 +1,7 @@
 #!/usr/bin/env python2.5
 # encoding: utf-8
 """
-@filename astooki.py
+@filename pyatk.py
 @author Tim van Werkhoven (tim@astro.su.se)
 @date 20090422 14:34
 @brief AsTooki: the astronomical toolkit - imagemagick for astronomers.
@@ -15,23 +15,29 @@ http://creativecommons.org/licenses/by-sa/3.0/
 """
 
 import sys, os, time
+import astooki.libfile as lf
+import astooki.liblog as log
+import astooki.libsh as libsh
 import getopt
 import numpy as N
 import scipy as S
-import libsh
-import libfile as lf
-import liblog as log
-import pdb
-#import libplot
 
 VERSION = "0.0.2"
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "2009-04-24"
 
-help_message = '''astooki version %s (%s) by %s.
-Usage: astooki <TOOL> [OPTIONS] [FILES]
+help_message = {}
+help_message['preamble'] = """astooki version %s (%s) by %s.
+Usage: pyatk <TOOL> [OPTIONS] [FILES]""" % (VERSION, DATE, AUTHOR)
 
-Tools
+help_message['syntaxerr'] = """pyatk.py: Syntax incorrect.
+Usage: 
+   pyatk <TOOL> [OPTIONS] [FILES]
+or
+   pyatk [TOOL] --help
+for help."""
+
+help_message['common'] = """Tools
  convert                     Convert files to another format
  stats                       Get statistics on files
  shiftoverlay                Overlay image shifts on the raw images
@@ -69,27 +75,27 @@ Common options
      --[no]norm              normalize pixels when masking [True]
      --crop=X,Y,W,H          crop region at X,Y size W,H
      --config=FILE           python file holding configuration, instead of 
-                               using command-line arguments [None]
+                               using command-line arguments [None]"""
 
-Convert options
+help_message['convert'] = """Convert options
  -f, --file=FILEPATH         if single file, store converted file here 
      --scale=FACTOR          scale output resolution by this factor [1.0]
  -o, --outformat=FORMAT      output file-format [fits]
-     --intclip=LOW,HIGH      clip intensity to this range
+     --intclip=LOW,HIGH      clip intensity to this range"""
 
-Stats options
- -f, --file=FILEPATH         file to store statistics to
+help_message['stats'] = """Stats options
+ -f, --file=FILEPATH         file to store statistics to"""
 
-Shiftoverlay options
+help_message['shiftoverlay'] = """Shiftoverlay options
      --intclip=LOW,HIGH      clip intensity to this range
      --subap=SA1,SA2,...     subapertures to process, set to -1 for all.
      --safile=FILEPATH       subaperture positions (csv)
      --sffile=FILEPATH       subfield positions relative to subap (csv)
      --shifts=FILEPATH       image shifts file
      --shape=[box,dot]       shape to indicate the shifts with
-     --skip=INT              skip this many entries in shifts file
+     --skip=INT              skip this many entries in shifts file"""
 
-Samask options
+help_message['samask'] = """Samask options
  -f, --file=FILEPATH         file to store subaperture configuration to
      --rad=RAD               radius of the subaperture pattern [1024]
      --shape=SHAPE           pattern shape (circular or square) [circular]
@@ -99,37 +105,37 @@ Samask options
                                units of --sasize [0, 0.5]
      --disp=X,Y              global pattern offset [0,0]
      --scale=SCALE           global pattern scaling factor [1.0]
-     --[no]plot              make a plot of the subaperture mask [no]
+     --[no]plot              make a plot of the subaperture mask [no]"""
 
-Sfmask options
+help_message['sfmask'] = """Sfmask options
  -f, --file=FILEPATH         file to store subaperture configuration to
      --sfsize=X,Y            subfield size [16, 16]
      --sasize=X,Y            subaperture size to fit things in
      --overlap=X,Y           how many overlap to allow between subfields in X 
                                and Y direction [0.5, 0.5]
-     --border=X,Y            add a border around the subfields
+     --border=X,Y            add a border around the subfields"""
 
-Saopt options
+help_message['saopt'] = """Saopt options
  -f, --file=FILEPATH         file to store optimized configuration to
      --saifac=FLOAT          intensity drop-off factor considered 'dark' [0.7]
      --rad=RAD               radius of the subaperture pattern, used for 
-                               plotting [1024]
-Saupd options
+                               plotting [1024]"""
+help_message['saupd'] = """Saupd options
      --mf=FILEPATH           mask to update
-     --offsets=FILE          file holding offset vectors for all subapertures
+     --offsets=FILE          file holding offset vectors for all subapertures"""
 
-Shifts options
+help_message['shifts'] = """Shifts options
  -r, --range=INT             shift range to use for cross-correlation [7]
      --safile=FILEPATH       subaperture locations, same format as maskfile
      --sffile=FILEPATH       subfield locations w.r.t. subaperture locations
- -n, --nref=INT              number of references to use [4]
+ -n, --nref=INT              number of references to use [4]"""
 
-Procshifts options
+help_message['procshifts'] = """Procshifts options
      --safile=FILEPATH       subaperture locations, same format as maskfile
      --sffile=FILEPATH       subfield locations w.r.t. subaperture locations
-     --shifts=FILE           shift measurements
+     --shifts=FILE           shift measurements"""
 
-Tomo options
+help_message['tomo'] = """Tomo options
      --shifts=FILE           shift measurements
      --safile=FILE           centroid positions for each subaperture IN 
 															APERTURE SPACE (meter)
@@ -139,9 +145,9 @@ Tomo options
      --nheights=N1,N2,...    number of heights each layer should be put at
      --layerheights=L1min-L1max,L2min-L2max,...
                              height range of each layer (meters)
-     --layercells=W,H        number of cells in a layer
+     --layercells=W,H        number of cells in a layer"""
 
-Examples
+help_message['examples'] = """Examples
  To calculate stats for a series of files in one directory, using dark- and
  flatfielding and cropping using a pre-calculated mask:
    astooki.py stats -vvv --ff *ff*1001 --fm=500 --df ../2009.04.22/*dd*1995 \\
@@ -197,8 +203,8 @@ Examples
    proc/subshift2/2009.04.28-run01_wfwfs_test_im28Apr2009_3-1002-shifts.npy \\
    --ff ../2009.04.28-flats/wfwfs_test_ff28Apr2009.0000002 --fm 500 --df \\
    ../2009.04.28-darks/wfwfs_test_dd28Apr2009.0000002 --dm 500 \\
-   wfwfs_test_im28Apr2009.0000*
-''' % (VERSION, DATE, AUTHOR)
+   wfwfs_test_im28Apr2009.0000*"""
+
 
 ### Supported formats
 _FORMAT_ANA = 'ana'
@@ -256,12 +262,11 @@ def parse_options():
 	# First check whether argv[1] is present (could be -h, --help or a tool)
 	try:
 		tool = argv[1]
-		if tool in ["-h", "--help"]: print_help()
+		if tool in ["-h", "--help"]: print_help('common')
 		elif tool not in _TOOLS:
 			raise Exception
 	except:
-		print >> sys.stderr, os.path.basename(sys.argv[0]) + ": Syntax incorrect."
-		print >> sys.stderr, "\t for help use --help"
+		print_help('syntaxerr', out=sys.stderr)
 		sys.exit(2)
 	
 	# Parse common options first
@@ -604,8 +609,8 @@ class Tool(object):
 	
 	def load(self, filename):
 		log.prNot(log.INFO, "Loading '%s'" % (filename))
-		if not os.path.exists(filename):
-			log.prNot(log.WARNING, "File '%s' does not exist" % (filename))
+		if not os.path.isfile(filename):
+			log.prNot(log.WARNING, "'%s' is not a regular file." % (filename))
 			return None
 		# Load data, using different methods depending on type
 		if (self.informat == _FORMAT_ANA):
@@ -632,7 +637,7 @@ class Tool(object):
 	
 	def __fitsload(self, filename):
 		import pyfits
-		return pyana.getdata(filename)
+		return pyfits.getdata(filename)
 	
 	
 	def __npyload(self, filename):
@@ -835,7 +840,7 @@ class SubaptConfTool(Tool):
 		libsh.saveSaSfConf(self.mkuri(tmp[0]+'-centroid'+tmp[1]), nsa, [-1,-1], \
 		 	size, cpos)
 		if (self.plot):
-			import libplot
+			import astooki.libplot as libplot
 			plrange = [list(N.array([-self.rad, self.rad]) + self.disp)]*2
 			libplot.showSaSfLayout(self.mkuri(self.file+'-plot.eps'), llpos, size, \
 				plrange=plrange)
@@ -867,11 +872,12 @@ class SubfieldConfTool(Tool):
 		# Generate subfield positions
 		effsize = self.sasize - 2*self.border
 		pitch = self.sfsize * (1-self.overlap)
-		nsf = N.floor(effsize / pitch)
-		effpitch = effsize/(nsf+1)
-		log.prNot(log.INFO, "Effective size: (%g,%g), pitch: (%g,%g)" % \
-		 	(tuple(effsize) + tuple(pitch)))
-		print nsf
+		nsf = N.floor((effsize-self.sfsize+pitch) / pitch)
+		effpitch = (effsize-self.sfsize)/(nsf-1)
+		effpitch[(nsf == 1)] = 0
+		
+		log.prNot(log.INFO, "Effective size: (%g,%g), effpitch: (%g,%g)" % \
+		 	(tuple(effsize) + tuple(effpitch)))
 		
 		sfpos = self.border + \
 			N.indices(nsf, dtype=N.float).reshape(2,-1).T * effpitch
@@ -883,7 +889,7 @@ class SubfieldConfTool(Tool):
 		libsh.saveSaSfConf(self.mkuri(self.file), totnsf, [-1,-1], self.sfsize, \
 		 	sfpos)
 		if (self.plot):
-			import libplot
+			import astooki.libplot
 			libplot.showSaSfLayout(self.mkuri(self.file+'-plot.eps'), sfpos, \
 			 	self.sfsize, plrange=[[0, self.sasize[0]], [0, self.sasize[1]]])
 		# Done
@@ -923,7 +929,7 @@ class SubaptUpdateTool(Tool):
 		# Store
 		libsh.saveSaSfConf(self.mkuri(self.file), nsa, [-1,-1], newsize, newpos)
 		if (self.plot):
-			import libplot
+			import astooki.libplot as libplot
 			plfile = self.mkuri(self.file + '-plot.eps')
 			# TODO: fix this range
 			plran = [[0, N.ceil(1600./512)*512]]*2
@@ -958,7 +964,7 @@ class SubaptOptTool(Tool):
 		# Save to file
 		libsh.saveSaSfConf(self.mkuri(self.file), onsa, [-1,-1], osize, opos)
 		if (self.plot):
-			import libplot
+			import astooki.libplot as libplot
 			# TODO: fix this range
 			libplot.showSaSfLayout(self.mkuri(self.file+'-plot.eps'), opos, osize, \
 				plrange=[[0, 2*self.rad]]*2)
@@ -979,15 +985,15 @@ class ShiftTool(Tool):
 			libsh.loadSaSfConf(self.safile)
 		(self.nsf, self.sfccdpos, self.sfccdsize) = \
 			libsh.loadSaSfConf(self.sffile)
-		if (len(self.files) > 0):
-			pardir = \
-			 	os.path.basename(os.path.dirname(os.path.realpath(self.files[0])))
-			basefile = os.path.splitext(os.path.basename(self.files[0]))[0]
-			begid = int((os.path.splitext(os.path.basename(self.files[0]))[1])[1:])
-			endid = int((os.path.splitext(os.path.basename(self.files[-1]))[1])[1:])
-			self.dataid = "%s_%s_%d-%d" % (pardir, basefile, begid, endid)
-		else:
-			self.dataid = "astooki-generic"			
+		if (len(self.files) < 1):
+			log.prNot(log.ERR, "ShiftTool(): Cannot continue without files!")
+		
+		pardir = \
+		 	os.path.basename(os.path.dirname(os.path.realpath(self.files[0])))
+		commonpref = os.path.commonprefix(self.files)
+		# begid = int((os.path.splitext(os.path.basename(self.files[0]))[1])[1:])
+		# endid = int((os.path.splitext(os.path.basename(self.files[-1]))[1])[1:])
+		self.dataid = "%s_%s" % (pardir, commonpref)
 		# Make sure we have a file to save results to
 		if (self.file is False):
 			self.file = os.path.realpath(self.dataid)
@@ -997,7 +1003,7 @@ class ShiftTool(Tool):
 	
 	def run(self):
 		#import libshifts as ls
-		import clibshifts as ls
+		import astooki.clibshifts as ls
 		# Process files
 		allshifts = []
 		allfiles = []
@@ -1354,7 +1360,7 @@ class ProcShiftsTool(Tool):
 			self.ofiles['offset-err'] = lf.saveData(\
 				self.mkuri('static-offset-err'), sofferr, asnpy=True, ascsv=True)
 			if (self.plot):
-				import libplot
+				import astooki.libplot as libplot
 				libplot.plotShifts(self.mkuri('static-offset-plot'), self.shifts, \
 					self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
 					plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=False, \
@@ -1431,7 +1437,7 @@ class TomoTool(Tool):
 	
 	
 	def run(self):
-		import libtomo as lt
+		import astooki.libtomo as lt
 		# Setup SVD cache for inverting data
 		svdCache = lt.cacheSvd(self.geoms, self.lsizes, self.lorigs, \
 			self.lcells, self.sasize, self.sapos, self.sfang, self.sffov, \
@@ -1540,6 +1546,7 @@ class TomoTool(Tool):
 			self.ofiles, aspickle=True)
 
 	
+	
 	def rms(self, data, remdc=False):
 		if remdc:
 			return N.sqrt(N.mean((data-N.mean(data))**2.0))
@@ -1553,13 +1560,16 @@ class TomoTool(Tool):
 ### Helper functions
 ### ==========================================================================
 
-def print_help(tool='common', out=sys.stdout):
-	if tool == 'common':
-		print >> out, help_message
+def print_help(tool, out=sys.stdout):
+	if (out == sys.stdout):
+		print >> out, help_message['preamble']
+		print >> out, help_message['common']
+		if (tool != 'common'):
+			print >> out, help_message[tool]
 		sys.exit(0)
 	else:
-		print >> out, 'No specific help for this tool.'
-		sys.exit(0)
+		print >> out, help_message[tool]
+		sys.exit(-1)
 
 
 if __name__ == "__main__":

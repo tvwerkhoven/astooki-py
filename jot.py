@@ -4,11 +4,11 @@
 ### Test libshifts-c library
 import sys
 import pyana
-import libsh
 import numpy as N
 import scipy
-import _libshifts
-import libshifts
+import astooki.libsh as libsh
+import astooki.libshifts as libshifts
+import astooki.clibshifts as clibshifts
 import time
 
 def main():
@@ -220,11 +220,11 @@ pylab.plot(newsh_a[:,sa,0,0], newsh_a[:,sa,0,1], 'o')
 # ==================================
 
 import numpy as N
-import libfile as lf
-import liblog as log
+import astooki.libfile as lf
+import astooki.liblog as log
 log.VERBOSITY +=2
-import libsh
-import libtomo as lt
+import astooki.libsh as libsh
+import astooki.libtomo as lt
 import pylab
 
 def rms(data, remdc=False):
@@ -428,11 +428,11 @@ pylab.plot(recatm[9,0].flatten())
 ### ==========================================================================
 
 import numpy as N
-import libfile as lf
-import liblog as log
+import astooki.libfile as lf
+import astooki.liblog as log
 log.VERBOSITY +=2
-import libsh
-import libtomo as lt
+import astooki.libsh as libsh
+import astooki.libtomo as lt
 import pylab
 
 def rms(data, remdc=False):
@@ -549,7 +549,7 @@ pylab.plot((fakedata[atm] - fakerecdata[atm]).flatten())
 ### Analyze tomographic inversion data
 ### ==========================================================================
 
-import libfile as lf
+import astooki.libfile as lf
 import pylab
 
 dat, meta = lf.restoreData('astooki-meta-data.pickle')
@@ -589,3 +589,37 @@ pylab.plot(recrms_a[:,1])
 pylab.cla()
 pylab.plot(diffrms_a[:,0])
 pylab.plot(recrms_a[:,0])
+
+### ==========================================================================
+### Subfield mask problems
+### ==========================================================================
+import numpy as N
+
+sasize = N.array([88,92])
+border = N.array([10,10])
+sfsize = N.array([68,72])
+overlap = N.array([0,0])
+
+
+sasize = N.array([88,92])
+border = N.array([6,6])
+sfsize = N.array([16,16])
+overlap = N.array([0.5,0.5])
+
+effsize = sasize - 2*border
+print effsize
+pitch = sfsize * (1-overlap)
+print pitch
+nsf = N.floor((effsize-sfsize+pitch) / pitch)
+print nsf
+effpitch = (effsize-sfsize)/(nsf-1)
+effpitch[(nsf == 1)] = 0
+print effpitch
+
+sfpos = border + \
+	N.indices(nsf, dtype=N.float).reshape(2,-1).T * effpitch
+sfpos = N.floor(sfpos).astype(N.int32)
+
+print sasize
+print sfpos.min(0)
+print sfpos.max(0), sfpos.max(0) + sfsize + border

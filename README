@@ -1,72 +1,85 @@
 astooki-py -- the astronomical toolkit.
-
-* About
+==============================================================================
 
 Astooki is a command-line tool for analyzing astronomical data using the
-astooki library (astooky-lib). Currently it provides rudimentary image
+astooki library (astooki-lib). Currently it provides rudimentary image
 analysis and conversion routines, as well as more complex analysis tools for
 (wide-field) wavefront sensor data.
 
-Both astooki and astooki-lib are written by Tim van Werkhoven.
+This library is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.
 
-* Install
+Installation
+============
 
 To install astooki, first make sure the astooki library is available on your
-system. Then simply copy astooki-py to a directory in your path and use it
+system. Then simply copy astooki-py to a directory in your path and use it.
 
-* Howto
+Usage
+=====
 
 To get rudimentary information on how to use astooki, run
    astooki-py --help
 and all options will be displayed along with some basic information. A more 
 complete list of what astooki can do is given below:
 
-** Stats tool
+Stats tool
+----------
 
 Purpose: calculate statistics on images
 Arguments:
 
-** Convert tool
+Convert tool
+------------
 
-Purpose: convert images from one format to another.
-Arguments:
+Purpose: 	Convert images from one format to another.
+Arguments:	
+Notes: 		Supported input formats currently include: ana, fits, npy. Output 
+			formats include fits, npy and png
 
-Notes: Supported input formats currently include: ana, fits, npy. Output formats include fits, npy and png
-
-** Shiftoverlay tool
+Shiftoverlay tool
+-----------------
 
 Purpose: visualize image shifts on the raw images
 
-
-** Samask tool
+Samask tool
+-----------
 
 Purpose: make a subaperture mask, giving a file with centroid and lower-left coordinates for a mask of subapertures or subimages
 
-** Sfmask tool
+Sfmask tool
+-----------
 
 Purpose: make a subfield mask
 
-** Saopt tool
+Saopt tool
+----------
 
 Purpose: Optimze a subaperture mask with a flatfield image
 
-** Saupd tool
+Saupd tool
+----------
 
 Purpose: Update a subaperture mask with an offset
 
-** Shifts tool
+Shifts tool
+-----------
 
 Purpose: measure image shifts in various subfields and subimages
 
-** Procshifts tool
+Procshifts tool
+---------------
 
 Purpose: process shifts measured with the shifts tool
 
-** Tomo tool
+Tomo tool
+---------
 
 Purpose: tomographically analyze differential image shifts
 
-* Todo
+Todo
+====
 
 - 20090514: take telescope angle into account
 - 20090519: document routines, workflow, file syntax, coordinate systems
@@ -75,12 +88,8 @@ Purpose: tomographically analyze differential image shifts
 - 20090519: -> why can't we resolve the higher layers?
 - 20090519: calculate r_0 of the data
 
-* Known issues
+Known issues
+============
 
 None
 
-* License
-
-Astooki and astooki-lib are licensed under the Creative Commons share-alike 
-license. In short, you are allowed to do anything with the program, as long as 
-you provide the changes to the public without any limitations.

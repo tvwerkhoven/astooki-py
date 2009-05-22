@@ -105,11 +105,11 @@ array([ 0.29181489,  0.37478975,  0.29181489,  0.37478974])]
 # ==================================
 
 import numpy as N
-import libfile as lf
-import liblog as log
+import astooki.libfile as lf
+import astooki.liblog as log
 log.VERBOSITY +=2
-import libsh
-import libtomo as lt
+import astooki.libsh as libsh
+import astooki.libtomo as lt
 import pylab
 
 # Functions
