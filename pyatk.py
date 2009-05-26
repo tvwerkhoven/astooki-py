@@ -49,6 +49,7 @@ help_message['common'] = """Tools
                                subimages
  procshifts                  Process shifts measured with the shifts tool
  tomo                        Tomographically analyze differential image shifts
+ sdimm                       SDIMM+ analysis of image shifts
 
 Input formats supported
  ana                         ANA format
@@ -138,7 +139,7 @@ help_message['procshifts'] = """Procshifts options
 help_message['tomo'] = """Tomo options
      --shifts=FILE           shift measurements
      --safile=FILE           centroid positions for each subaperture IN 
-															APERTURE SPACE (meter)
+                               APERTURE SPACE (meter)
      --sffile=FILE           subfield positions on the CCD (pixels)
      --ccdres                angular resolution of the CCD pixels (arcsec/pix)
      --aptr=R                telescope aperture radius (meter)
@@ -146,6 +147,13 @@ help_message['tomo'] = """Tomo options
      --layerheights=L1min-L1max,L2min-L2max,...
                              height range of each layer (meters)
      --layercells=W,H        number of cells in a layer"""
+
+help_message['sdimm'] = """SDIMM options
+     --shifts=FILE           shift measurements
+     --safile=FILE           centroid positions for each subaperture IN 
+                               APERTURE SPACE (meter)
+     --sffile=FILE           subfield positions on the CCD (pixels)
+"""
 
 help_message['examples'] = """Examples
  To calculate stats for a series of files in one directory, using dark- and
@@ -214,7 +222,7 @@ _FORMAT_NPY = 'npy'
 _INFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_NPY)
 _OUTFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_PNG, _FORMAT_NPY)
 ### Tools available
-_TOOLS = ('convert', 'stats', 'shiftoverlay', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts', 'procshifts', 'tomo')
+_TOOLS = ('convert', 'stats', 'shiftoverlay', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts', 'procshifts', 'tomo', 'sdimm')
 ### Default types to use
 _ftype = N.float64
 _itype = N.int32
@@ -246,7 +254,7 @@ def main(argv=None):
 	elif (tool == 'shifts'): ShiftTool(files, params)
 	elif (tool == 'procshifts'): ProcShiftsTool(files, params)
 	elif (tool == 'tomo'): TomoTool(files, params)
-	
+	elif (tool == 'sdimm'): SdimmTool(files, params)
 	# done
 	dur = time.time() - beg
 	log.prNot(log.NOTICE, "Completed in %g seconds." % (dur))
@@ -331,13 +339,12 @@ def parse_options():
 		if option in ["--safile"]: params['safile'] = os.path.realpath(value)
 		if option in ["--sffile"]: params['sffile'] = os.path.realpath(value)
 		if option in ["-n", "--nref"]: params['nref'] = N.int32(value)
-		# Tomo
+		# Tomo / sdimm
 		if option in ["--ccdres"]: params['ccdres'] = float(value)
 		if option in ["--aptr"]: params['aptr'] = float(value)
 		if option in ["--nheights"]: params['nheights'] = value.split(',')
 		if option in ["--layerheights"]: params['layerheights'] = value.split(',')
 		if option in ["--layercells"]: params['layercells'] = value.split(',')		
-		
 	
 	return (tool, params, files)
 
@@ -798,7 +805,7 @@ class Tool(object):
 					self.crop[0]:self.crop[0] + self.crop[2]]
 				self.maskborder = self.maskborder[self.crop[1]:self.crop[1] + \
 				 	self.crop[3], self.crop[0]:self.crop[0] + self.crop[2]]
-				
+		
 	
 
 
@@ -1555,7 +1562,402 @@ class TomoTool(Tool):
 
 	
 
+
+class SdimmTool(Tool):
+	"""
+	Perform SDIMM+ analysis on shift data.
 	
+	- Loop over all rows of subapertures (subapertures that are at the same y 
+	  position)
+	- For each subap row choose a reference subaperture (i.e. the left-most one)
+	- Loop over all rows of subfields (subfields with the same y coordinate)
+	- For each subfield row, choose a reference subfield
+	- Loop over all other subapertures in this subap row
+	- Loop over all other subfields in this subfield row
+	- Compare all subaperture-subfield pairs as described in Scharmer & van 
+	  Werkhoven
+	- Repeat this for all columns
+	
+	This tool outputs the raw results of the calculations to sdimmraw.<fits|npy> 
+	and is a is an N * 9 matrix where each row holds the following information:
+    [id, s, a, C_lsa, C_tsa, refsa, sa, refsf, sf]
+  with:
+	- id=0 for row-wise comparison and 1 for column-wise (as described 
+    above),
+  - s the scalar distance between the two subapertures in meters,
+  - a the scalar angle between the two subfields in pixels (convert with the 
+    CCD scale to get a real angle), 
+  - C_lsa the longitudinal covariance between the two sequences of 
+    differential image shifts (as described in the paper)
+  - C_tsa the transversal covariance
+  - refsa the index of the reference subaperture used here
+  - refsf the ubdex of the reference subfield used here
+  - sa the index of the other subaperture used
+  - sf the index of the other subfield used
+  
+  Besides the raw information, this tool also outputs processed information to
+  sdimmcol* and sdimmrow* files, where the *col* files have information on the 
+  column-wise comparison and the *row* files on the row-wise comparison of the
+  data.
+	
+	sdimm<col|row>.* is a 3 x N x M matrix with N the number of unique
+  subaperture distances (s) and M the number of unique angles (a) for this 
+  data. For the 85 subaperture lenslet array at the SST, N is 5 for
+  column-wise comparison and 9 for row-wise comparison. This is the data that
+  should be decomposde in SDIMM basis described in the paper. 
+ 	
+  The first N x M frame holds the longitudinal covariance, the second frame
+  holds the transversal covariance and the third frame holds the number of
+  covariances each specific cell was averaged over (i.e. given an (s,a)
+  coordinate, how many covariances were calculated?
+	
+  sdimm<col|row>-s.* hold the unique subaperture distances mentioned above, 
+  and sdimm<col|row>-a.* hold the unique subfield angles mentioned above.
+	
+	The following parameters are required as input for this tool:
+	@param safile centroid subaperture positions [meter]
+	@param sffile centroid subfield positions [pixel]
+	@param ccdres angular ccd resolution [arcsec/pix]
+	@param aptr aperture radius [meter)]
+	"""
+	def __init__(self, files, params):		
+		super(SdimmTool, self).__init__(files, params)
+		# Load shift data
+		self.shifts = lf.loadData(params['shifts'], asnpy=True)
+		# Load subaperture centroid positions
+		(self.nsa, self.sapos, self.sasize) = \
+		 	libsh.loadSaSfConf(params['safile'])
+		# Load subfield pixel positions
+		(self.nsf, self.sfccdpos, self.sfsize) = \
+			libsh.loadSaSfConf(params['sffile'])
+		# Store ccd resolution in radians (arcsec -> radian == /60/60 * pi/180)
+		#self.ccdres = params['ccdres'] * N.pi /60./60./180.
+		# Telescope aperture radius
+		#self.aptr = params['aptr']
+		# Calculate effective (subfield) FoV 
+		# self.fov = (N.max(self.sfccdpos + self.sfsize, axis=0) - \
+		# 	N.min(self.sfccdpos, axis=0)) * self.ccdres 
+		# self.sffov = self.sfsize * self.ccdres
+		# Calculate subfield pointing angles, set average to 0
+		# self.sfang = (self.sfccdpos + self.sfsize/2.0) * self.ccdres
+		# self.sfang -= N.mean(self.sfang, axis=0)
+		# Rotate the coordinate system
+		#self.sfang *= N.array([-1.0,-1.0])
+		
+		log.prNot(log.NOTICE, "Starting SDIMM+ analysis of WFWFS data stored in '%s'." % (params['shifts']))
+		
+		self.run()
+	
+	
+	def run(self):
+		# Check for non-finite values (shouldn't be, just to make sure)
+		notfin = N.argwhere(N.isfinite(self.shifts) == False)
+		if (notfin.shape[0] > 0):
+			log.prNot(log.WARNING, 
+				"Some measurements are non-finite, check configuration!")
+			# TODO: setting to zero is a poor solution to fixing NaNs
+			for nfidx in notfin:
+				self.shifts[tuple(nfidx)] = 0.0
+		
+		# Average over number of references
+		shifts = self.shifts.mean(axis=1)
+		
+		# This will hold the sdimm correlation values
+		sdimm = []
+		
+		### Loop over all *rows*
+		### ====================
+		# Get unique SA row positions
+		sarows = N.unique(self.sapos[:,1])
+		# Get unique SF row positions
+		sfrows = N.unique(self.sfccdpos[:,1])		
+		# Loop over all subaperture rows
+		for sarowpos in sarows:
+			# Get a list of all subapertures at this row (i.e. same y coordinate)
+			salist = N.argwhere(self.sapos[:,1] == sarowpos).flatten()
+			# Take a reference subaperture in this row (the one on the left)
+			refsa = salist[N.argmin(self.sapos[salist][:,0])]
+			# Loop over all subapertures in this row
+			for rowsa in salist:
+				if (rowsa == refsa): continue
+				log.prNot(log.NOTICE, "ROW: Comparing subap %d with subap %d." % \
+					(refsa, rowsa))
+				# Calculate the distance between these two subaps
+				s = self.sapos[rowsa, 0] - self.sapos[refsa, 0]
+				# Loop over all subfield rows
+				for sfrowpos in sfrows:
+					# Get a list of all subfields at this row (i.e. same y coordinate)
+					sflist = N.argwhere(self.sfccdpos[:,1] == sfrowpos).flatten()
+					# Take a reference subaperture in this row (the one on the left)
+					refsf = sflist[N.argmin(self.sfccdpos[sflist][:,0])]
+					# Loop over all subfields in this row
+					for rowsf in sflist:
+						if (rowsf == refsf): continue
+						# Calculate the angle between these subfields (in *pixels*! 
+						# multiply with pixel scale to get real angles)
+						a = self.sfccdpos[rowsf, 0] - self.sfccdpos[refsf, 0]
+						# Compare subap <refsa> with <rowsa> here and subfield <refsf>
+						# with <rowsf>. Follow the notation in Scharmer & van Werkhoven:
+						# differential image shifts:
+						dx_s0 = shifts[:, refsa, refsf, :] - shifts[:, rowsa, refsf, :]
+						dx_sa = shifts[:, refsa, rowsf, :] - shifts[:, rowsa, rowsf, :]
+						# Unscaled longitudinal and transversal covariance of these shifts
+						C_lsa = (N.cov(dx_s0[:,0], dx_sa[:,0]))[0,1]
+						C_tsa = (N.cov(dx_s0[:,1], dx_sa[:,1]))[0,1]
+						# Add all values to the matrix
+						sdimm.append([0, s, a, C_lsa, C_tsa, refsa, rowsa, refsf, rowsf])
+		
+		### Loop over all *columns*
+		### =======================
+		sacols = N.unique(self.sapos[:,0])
+		sfcols = N.unique(self.sfccdpos[:,0])		
+		for sacolpos in sacols:
+			salist = N.argwhere(self.sapos[:,0] == sacolpos).flatten()
+			refsa = salist[N.argmin(self.sapos[salist][:,1])]
+			for colsa in salist:
+				if (colsa == refsa): continue
+				log.prNot(log.NOTICE, "COLUMN: Comparing subap %d with subap %d." % \
+					(refsa, colsa))
+				s = self.sapos[colsa, 1] - self.sapos[refsa, 1]
+				for sfcolpos in sfcols:
+					sflist = N.argwhere(self.sfccdpos[:,0] == sfcolpos).flatten()
+					refsf = sflist[N.argmin(self.sfccdpos[sflist][:,1])]
+					for colsf in sflist:
+						if (colsf == refsf): continue
+						a = self.sfccdpos[colsf, 1] - self.sfccdpos[refsf, 1]
+						dx_s0 = shifts[:, refsa, refsf, :] - shifts[:, colsa, refsf, :]
+						dx_sa = shifts[:, refsa, colsf, :] - shifts[:, colsa, colsf, :]
+						C_lsa = (N.cov(dx_s0[:,1], dx_sa[:,1]))[0,1]
+						C_tsa = (N.cov(dx_s0[:,0], dx_sa[:,0]))[0,1]
+						sdimm.append([1, s, a, C_lsa, C_tsa, refsa, colsa, refsf, colsf])
+		
+		# Convert to numpy array and store to disk
+		sdimm = N.array(sdimm)
+		self.ofiles['sdimmraw'] = lf.saveData(self.mkuri('sdimmraw'), \
+		 	sdimm, asnpy=True, asfits=True)
+		
+		# Now filter sdimm values so that we have a two matrices of correlations,
+		# one for transversal (C_tsa) and one for longitudinal (C_lsa) 
+		# correlations
+		
+		# FIXME: Need to round off 's' values because we get numerical errors
+		sdimm[:,1] = N.round(sdimm[:,1], 7)
+		sdrow = sdimm[N.argwhere(sdimm[:,0] == 0).flatten()]
+		sdcol = sdimm[N.argwhere(sdimm[:,0] == 1).flatten()]
+		
+		### Process row-wise data here
+		### ==========================
+		# Unique s and a values:
+		uns = N.unique(sdrow[:,1])
+		una = N.unique(sdrow[:,2])
+		
+		# Fill matrix SDimmRowCorrelation
+		sdrc = N.zeros(((3,) + uns.shape + una.shape))
+		for ns in xrange(len(uns)):
+			s = uns[ns]
+			for na in xrange(len(una)):
+				a = una[na]
+				idx = N.argwhere((sdrow[:,1] == s) & (sdrow[:,2] == a))
+				if len(idx) == 0:
+					log.prNot(log.WARNING, "Warning: found 0 at (%g, %g)!" % (s, a))
+				else: 
+					sdrc[0, ns, na] = N.mean(sdrow[idx, 3])
+					sdrc[1, ns, na] = N.mean(sdrow[idx, 4])
+					sdrc[2, ns, na] = len(idx)
+		# Save correlation values to disk
+		self.ofiles['sdimmrow'] = lf.saveData(self.mkuri('sdimmrow'), \
+		 	sdrc, asnpy=True, asfits=True)
+		# Save s and a values to disk
+		self.ofiles['sdimmrow-s'] = lf.saveData(self.mkuri('sdimmrow-s'), \
+			uns, asnpy=True, asfits=True, ascsv=True)
+		self.ofiles['sdimmrow-a'] = lf.saveData(self.mkuri('sdimmrow-a'), \
+			una, asnpy=True, asfits=True, ascsv=True)
+		
+		### Process column-wise data here
+		### =============================
+		# Unique s and a values:
+		uns = N.unique(sdcol[:,1])
+		una = N.unique(sdcol[:,2])
+		
+		# Fill SDimmColumnCorrelation
+		sdcc = N.zeros(((3,) + uns.shape + una.shape))
+		for ns in xrange(len(uns)):
+			s = uns[ns]
+			for na in xrange(len(una)):
+				a = una[na]
+				idx = N.argwhere((sdcol[:,1] == s) & (sdcol[:,2] == a))
+				if len(idx) == 0: 
+					log.prNot(log.WARNING, "Warning: found 0 at (%g, %g)!" % (s, a))
+				else: 
+					sdcc[0, ns, na] = N.mean(sdcol[idx, 3])
+					sdcc[1, ns, na] = N.mean(sdcol[idx, 4])
+					sdcc[2, ns, na] = len(idx)
+		# Save to disk
+		self.ofiles['sdimmcol'] = lf.saveData(self.mkuri('sdimmcol'), \
+		 	sdcc, asnpy=True, asfits=True)
+		self.ofiles['sdimmcol-s'] = lf.saveData(self.mkuri('sdimmcol-s'), \
+			uns, asnpy=True, asfits=True, ascsv=True)
+		self.ofiles['sdimmcol-a'] = lf.saveData(self.mkuri('sdimmcol-a'), \
+			una, asnpy=True, asfits=True, ascsv=True)
+		metafile = lf.saveData(self.mkuri('sdimm-meta-data'), \
+			self.ofiles, aspickle=True)
+	
+
+
+class SimulShift(Tool):
+	"""Simulate WFWFS measurements using N discrete KL phase screens"""
+	def __init__(self, files, params):		
+		super(TomoTool, self).__init__(files, params)
+		# need: nlayer, ncells, lheights, lstrength, lorigs, lsizes, sapos,
+		# sasize, sfpos, sfsize
+		
+		# Load subaperture centroid positions
+		(self.nsa, self.sapos, self.sasize) = \
+		 	libsh.loadSaSfConf(params['safile'])
+		# Load subfield pixel positions
+		(self.nsf, self.sfccdpos, self.sfsize) = \
+			libsh.loadSaSfConf(params['sffile'])
+		self.aptr = params['aptr']
+		
+		# Geometry (layer heights and number of cells)
+		self.nlay = params['nheights']
+		self.lh = params['layerheights']
+		self.lcells = params['layercells']
+		self.lorigs = N.zeros((N.product(self.nlay), len(self.nlay)))
+		self.lsizes = N.zeros((N.product(self.nlay), len(self.nlay)))
+		
+		# Calculate effective (subfield) FoV 
+		self.fov = (N.max(self.sfccdpos + self.sfsize, axis=0) - \
+			N.min(self.sfccdpos, axis=0)) * self.ccdres 
+		self.sffov = self.sfsize * self.ccdres
+		# Calculate subfield pointing angles, set average to 0
+		self.sfang = (self.sfccdpos + self.sfsize/2.0) * self.ccdres
+		self.sfang -= N.mean(self.sfang, axis=0)
+		
+		# Layer origin and sizes
+		telang = [0.0, 0.0]
+		self.lorigs = self.reshape(-1,1) * N.tan(telang).reshape(1,2)
+		self.lsizes = self.aptr + \
+				self.reshape(-1,1) * N.tan(0.5 * self.fov).reshape(1,1,2)
+		
+		log.prNot(log.NOTICE, "Starting seeings simulation using %d layers with each %dx%d cells." % (len(self.nlay), self.lcells[0], self.lcells[1]))
+		
+		self.run()
+	
+	
+	def run(self):
+		pass
+	
+	
+	def genCn2(self, maxh=25000, mode=0, n=5000):
+		"""
+		Generate a C_n^2 profile up to height 'maxh' in 'n' steps. 'mode' 
+		determines the type of C_n^2 profile to generate, currently only the H-V 
+		5/7 model is supported.
+		"""
+		# Generate height array and empty C_n^2 profile
+		height = linspace(0.0, maxh, n)
+		cn2 = zeros(len(height))
+		# Generate C_n^2 values
+		if mode == 0:
+			# Generate H-V 5/7 profile (Tyson p10)
+			W = 21.
+			A = 1.7e-14
+			height /= 1000.0
+			cn2 = 5.94e-23 * height**10 * (W/27)**2 * exp(-height) + \
+				2.7e-16 * exp(-2 * height / 3) + A * exp(-10 * height)
+			height *= 1000.
+		else:
+			raise ValueError('Unknown mode (should be 0)')
+		
+		# Return the C_n^2 profile with associated heights
+		return array([height, cn2])
+	
+	
+	def readRadialKl(self, filename, nModes=500):
+		"""
+		Read in the radial KL profiles from disk, limiting the number of modes
+		read in to 'nModes'.
+		"""
+		fd = open(filename, 'r')
+		
+		n_e = int(fd.readline()) # Number of 'raw' KL modes (unique q's)
+		n_r = int(fd.readline()) # Number of radial points per profile
+		# Estimate the number of modes present if not set
+		n_m = nModes if (nModes) else 2*n_e
+		
+		# Skip four lines
+		for i in range(4):
+			fd.next()
+		
+		# Allocate memory for the various KL quantities
+		kl_p = N.zeros(n_m, N.int)
+		kl_q = N.zeros(n_m, N.int)
+		kl_e = N.zeros(n_m, N.float)
+		# Memory for the radial coordinates
+		kl_r = N.zeros(n_r, N.float)
+		# Memory for the radial KL modes
+		kl = N.zeros((n_r, n_m), N.float)
+		
+		# Read in radial coordinates
+		for i in range(n_r):
+			kl_r[i] = N.float(fd.next())
+		
+		# Read in KL modes. File starts with mode 2 (tip), piston is not included.
+		jj = 1
+		nold = 0
+		log.prNot(\
+			log.NOTICE, "Starting reading in %d KL modes at %ld" % (n_e, fd.tell()))
+		
+		for i in xrange(n_e):
+			# Use the line listing the KL mode number as consistency check
+			n = N.int(fd.next())
+			if (n != nold+1):
+				raise IOError(-1, ("Reading in KL modes from " + filename + \
+					" failed, KL modes do not increment correctly."))
+			nold = n
+			
+			# Read some KL mode properties
+			kl_e[jj] = float(fd.next())
+			kl_p[jj] = int(fd.next())
+			kl_q[jj] = int(fd.next())
+			
+			# Read in the radial values of the KL mode
+			for r in xrange(n_r):
+				kl[r,jj] = float(fd.next())
+			
+			# Increase the number of KL modes read, stop if we have enough
+			jj += 1
+			if jj >= n_m: break
+			
+			# If kl_q is not zero, we can re-use this base-mode
+			if kl_q[jj-1] != 0:
+				kl_e[jj] = kl_e[jj-1]
+				kl_p[jj] = kl_p[jj-1]
+				kl_q[jj] = -kl_q[jj-1]
+				kl[:,jj] = kl[:,jj-1]
+				jj += 1
+				if jj >= n_m: break
+		
+		prNot(log.NOTICE, \
+			"Read %d modes and %g kilobytes" % (jj, fd.tell()/1000.))
+		fd.close()
+		
+		# Sanity checking here
+		if not (N.alltrue(isfinite(kl)) and N.alltrue(kl_e >= 0)):
+			raise ValueError("Error reading KL modes, some values are not finite")
+		
+		return {
+			'r': kl_r, 
+			'e': kl_e, 
+			'p': kl_p, 
+			'q': kl_q, 
+			'kl': kl
+		}
+	
+	
+	
+
 ### ==========================================================================
 ### Helper functions
 ### ==========================================================================

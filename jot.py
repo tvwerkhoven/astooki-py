@@ -623,3 +623,140 @@ sfpos = N.floor(sfpos).astype(N.int32)
 print sasize
 print sfpos.min(0)
 print sfpos.max(0), sfpos.max(0) + sfsize + border
+
+### ==========================================================================
+### SDIMM+ jot code
+### ==========================================================================
+
+import astooki.libsh as libsh
+import numpy as N
+
+# Load subap/subfield positions
+(nsa, sapos, sasize) = libsh.loadSaSfConf('./samask/2009.04.28-run05-samask-ll-centroid.csv')
+(nsf, sfccdpos, sfsize) = libsh.loadSaSfConf('./sfmask/2009.04.28-run05-sfmask-20x20.csv')
+# Subfield fov
+ccdres = 0.35
+sffov = sfsize * ccdres
+# Subfield centroid position
+sfccdpos += sfsize/2.0
+# Calculate subfield pointing angles, set average to 0
+sfang = sfccdpos * ccdres
+sfang -= N.mean(sfang, axis=0)
+
+# Get unique SA rows
+sarows = N.unique(sapos[:,1])
+sacols = N.unique(sapos[:,0])
+
+for sacolpos in sacols:
+	salist = N.argwhere(sapos[:,0] == sacolpos).flatten()
+	refsa = salist[N.argmin(sapos[salist][:,1])]
+	salist
+	refsa
+
+
+# Get unique SF rows
+sfrows = N.unique(sfang[:,1])
+sfcols = N.unique(sfang[:,0])
+
+# Load 'data'
+shifts = N.random.random((100,2,nsa,nsf,2))
+shifts = shifts.mean(1)
+
+# List for distances
+slist = []
+# List for angles (in pixels)
+alist = []
+
+# Loop over unique rows of subapertures
+for sarowpos in sarows:
+	# List of subapertures in this row
+	salist = N.argwhere(sapos[:,1] == sarowpos).flatten()
+	# Reference subaperture is the one on the left (minimum x coordinate)
+	refsa = salist[N.argmin(sapos[salist][:,0])]
+	# Loop over the subapertures in this row
+	for rowsa in salist:
+		if (rowsa == refsa): continue
+		# Comparing rowsa with refsa here, get subfields
+		print "refsa: %d @ (%g,%g) with rowsa %d (%g,%g)" % \
+			((refsa, ) + tuple(sapos[refsa]) + (rowsa, ) +tuple(sapos[rowsa]))
+		s = sapos[rowsa] - sapos[refsa]
+		slist.append(s)
+
+for sfrowpos in sfrows:
+	sflist = N.argwhere(sfang[:,1] == sfrowpos).flatten()
+	refsf = sflist[N.argmin(sfang[sflist][:,0])]
+	for rowsf in sflist:
+		if (rowsf == refsf): continue
+		print "refsf: %d @ (%g,%g) with rowsa %d (%g,%g)" % \
+			((refsf, ) + tuple(sfccdpos[refsf]) + (rowsf, ) \
+			 +tuple(sfccdpos[rowsf]))
+		a = sfccdpos[rowsf] - sfccdpos[refsf]
+		alist.append(a)
+
+print slist
+print alist
+
+# This will hold the sdimm correlation values
+sdimm = []
+for sarowpos in sarows:
+	salist = N.argwhere(sapos[:,1] == sarowpos).flatten()
+	refsa = salist[N.argmin(sapos[salist][:,0])]
+	for rowsa in salist:
+		print rowsa, refsa
+		if (rowsa == refsa): continue
+		s = sapos[rowsa, 0] - sapos[refsa, 0]
+		for sfrowpos in sfrows:
+			sflist = N.argwhere(sfang[:,1] == sfrowpos).flatten()
+			refsf = sflist[N.argmin(sfang[sflist][:,0])]
+			for rowsf in sflist:
+				if (rowsf == refsf): continue
+				a = sfccdpos[rowsf, 0] - sfccdpos[refsf, 0]
+				# Compare subap refsa with rowsa here and subfield refsf with rowsf:
+				dx_s0 = shifts[:, refsa, refsf, :] - shifts[:, rowsa, refsf, :]
+				dx_sa = shifts[:, refsa, rowsf, :] - shifts[:, rowsa, rowsf, :]
+				C_lsa = (N.cov(dx_s0[:,0], dx_sa[:,0]))[0,1]
+				C_tsa = (N.cov(dx_s0[:,1], dx_sa[:,1]))[0,1]
+				sdimm.append([0, s, a, C_lsa, C_tsa, refsa, rowsa, refsf, rowsf])
+				
+
+sdimm = N.array(sdimm)
+
+### Continue with processed data here
+
+import astooki.libsh as libsh
+import astooki.libfile as lf
+import numpy as N
+import pylab
+import numdisplay
+
+# Load sdimm covariance
+sdimmraw = N.load('sdimmraw.npy')
+sdrow = sdimmraw[N.argwhere(sdimmraw[:,0] == 0).flatten()]
+sdcol = sdimmraw[N.argwhere(sdimmraw[:,0] == 1).flatten()]
+
+# Get unique s and a values
+sd = sdrow
+sd[:,1] = N.round(sd[:,1], 7)
+uns = N.unique(N.round(sd[:,1], 7))
+una = N.unique(sd[:,2])
+
+# Init matrix for filtered sdimm data
+sdct = N.zeros((uns.shape + una.shape))
+sdcl = N.zeros((uns.shape + una.shape))
+
+# Fill the matrix
+for ns in xrange(len(uns)):
+	s = uns[ns]
+	for na in xrange(len(una)):
+		a = una[na]
+		idx = N.argwhere((sd[:,1] == s) & (sd[:,2] == a))
+		if len(idx) == 0: 
+			print "Warning: found 0 at (%g, %g)!" % (s, a)
+		else: 
+			sdct[ns, na] = N.mean(sd[idx, 3])
+			sdcl[ns, na] = N.mean(sd[idx, 4])
+
+# Display
+numdisplay.display(sdct)
+
+
