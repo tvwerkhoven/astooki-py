@@ -153,7 +153,7 @@ help_message['sdimm'] = """SDIMM options
      --safile=FILE           centroid positions for each subaperture IN 
                                APERTURE SPACE (meter)
      --sffile=FILE           subfield positions on the CCD (pixels)
-"""
+     --skipsa=SA1,SA2,...    list of subapertures to skip in analysis"""
 
 help_message['examples'] = """Examples
  To calculate stats for a series of files in one directory, using dark- and
@@ -211,7 +211,13 @@ help_message['examples'] = """Examples
    proc/subshift2/2009.04.28-run01_wfwfs_test_im28Apr2009_3-1002-shifts.npy \\
    --ff ../2009.04.28-flats/wfwfs_test_ff28Apr2009.0000002 --fm 500 --df \\
    ../2009.04.28-darks/wfwfs_test_dd28Apr2009.0000002 --dm 500 \\
-   wfwfs_test_im28Apr2009.0000*"""
+   wfwfs_test_im28Apr2009.0000*
+
+ SDIMM+ analysis on shift data:
+   pyatk.py sdimm -vv -d sdimm-16x16-dc --shifts 
+   subshift-16x16/2009.04.28-run05_wfwfs_test_im28Apr2009_1-999-shifts.npy 
+   --safile samask/2009.04.28-run05-samask-ll-centroid.csv --sffile 
+   sfmask/2009.04.28-run05-sfmask-16x16.csv"""
 
 
 ### Supported formats
@@ -282,7 +288,7 @@ def parse_options():
 	
 	params = get_defaults(tool)
 	
-	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "pitch=", "xoff=", "origin", "noorigin", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log=", "skip=", "ccdres=", "aptr=", "layerheights=", "nheights=", "layercells="])
+	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "pitch=", "xoff=", "origin", "noorigin", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log=", "skip=", "ccdres=", "aptr=", "layerheights=", "nheights=", "layercells=", "skipsa="])
 	# Remaining 'args' must be files
 	files = args
 	
@@ -345,6 +351,8 @@ def parse_options():
 		if option in ["--nheights"]: params['nheights'] = value.split(',')
 		if option in ["--layerheights"]: params['layerheights'] = value.split(',')
 		if option in ["--layercells"]: params['layercells'] = value.split(',')		
+		# sdimm options
+		if option in ["--skipsa"]: params['skipsa'] = value.split(',')		
 	
 	return (tool, params, files)
 
@@ -434,11 +442,11 @@ def check_params(tool, params):
 		log.prNot(log.ERR, "Unsupported input format '%s'" % (params['informat']))
 	
 	if (params.has_key('intclip') and params['intclip'] is not False):
-		try: params['intclip'] = N.array(params['intclip']).astype(N.float)[[0,1]]
+		try: params['intclip'] = N.array(params['intclip'], dtype=N.float)[[0,1]]
 		except: log.prNot(log.ERR, "intclip invalid, should be <float>,<float>.")
 	
 	if (params.has_key('crop') and params['crop'] is not False):
-		try: params['crop'] = N.array(params['crop']).astype(N.float)[[0,1,2,3]]
+		try: params['crop'] = N.array(params['crop'], dtype=N.float)[[0,1,2,3]]
 		except: log.prNot(log.ERR, "crop invalid, should be 4 floats.")
 	
 	if (params['flatfield']) and (not os.path.exists(params['flatfield'])):
@@ -457,35 +465,35 @@ def check_params(tool, params):
 		lf.saveOldFile(params['file'], postfix='.old', maxold=5)
 	
 	if params.has_key('pitch'):
-		try: params['pitch'] = N.array(params['pitch']).astype(N.float)[[0,1]]
+		try: params['pitch'] = N.array(params['pitch'], dtype=N.float)[[0,1]]
 		except: log.prNot(log.ERR, "pitch invalid, should be <float>,<float>.")
 	
 	if params.has_key('xoff'):
-		try: params['xoff'] = N.array(params['xoff']).astype(N.float)[[0,1]]
+		try: params['xoff'] = N.array(params['xoff'], dtype=N.float)[[0,1]]
 		except: log.prNot(log.ERR, "xoff invalid, should be <float>,<float>.")
 	
 	if params.has_key('disp'):
-		try: params['disp'] = N.array(params['disp']).astype(N.float)[[0,1]]
+		try: params['disp'] = N.array(params['disp'], dtype=N.float)[[0,1]]
 		except: log.prNot(log.ERR, "disp invalid, should be <float>,<float>.")
 	
 	if params.has_key('sfsize'):
-		try: params['sfsize'] = N.array(params['sfsize']).astype(N.int)[[0,1]]
+		try: params['sfsize'] = N.array(params['sfsize'], dtype=N.int)[[0,1]]
 		except: log.prNot(log.ERR, "sfsize invalid, should be <int>,<int>.")
 	
 	if params.has_key('sasize'):
-		try: params['sasize'] = N.array(params['sasize']).astype(N.float)[[0,1]]
+		try: params['sasize'] = N.array(params['sasize'], dtype=N.float)[[0,1]]
 		except: log.prNot(log.ERR, "sasize invalid, should be <float>,<float>.")
 	
 	if params.has_key('overlap'):
-		try: params['overlap'] = N.array(params['overlap']).astype(N.float)[[0,1]]
+		try: params['overlap'] = N.array(params['overlap'], dtype=N.float)[[0,1]]
 		except: log.prNot(log.ERR, "overlap invalid, should be <float>,<float>.")
 	
 	if params.has_key('border'):
-		try: params['border'] = N.array(params['border']).astype(N.int)[[0,1]]
+		try: params['border'] = N.array(params['border'], dtype=N.int)[[0,1]]
 		except: log.prNot(log.ERR, "border invalid, should be <int>,<int>.")
 	
 	if params.has_key('subap'):
-		try: params['subap'] = N.array(params['subap']).astype(N.int)
+		try: params['subap'] = N.array(params['subap'], dtype=N.int)
 		except: log.prNot(log.ERR, "subap invalid, should be list of ints.")
 	
 	if params.has_key('offsets'):	
@@ -497,7 +505,7 @@ def check_params(tool, params):
 		log.prNot(log.ERR, "Unsupported output '%s'" % (params['outformat']))
 	
 	if params.has_key('nheights'):
-		params['nheights'] = N.array(params['nheights']).astype(N.int)
+		params['nheights'] = N.array(params['nheights'], dtype=N.int)
 	
 	if params.has_key('layerheights'):
 		try: 
@@ -505,17 +513,19 @@ def check_params(tool, params):
 			for hran in params['layerheights']:
 				heights.append(hran.split('-'))
 				print heights[-1]
-			params['layerheights'] = N.array(heights).astype(N.float)
+			params['layerheights'] = N.array(heights, dtype=N.float)
 			print params['layerheights']
 		except: 
 			log.prNot(log.ERR, "layerheights invalid, should be <float>-<float>,<float>-<float>,....")
 	
 	if params.has_key('layercells'):
 		try: params['layercells'] = \
-			 N.array(params['layercells']).astype(N.int)[[0,1]]
+			 N.array(params['layercells'], dtype=N.int)[[0,1]]
 		except: 
 			log.prNot(log.ERR, "layercells invalid, should be <int>,<int>.")
 		
+	if params.has_key('skipsa'):
+		params['skipsa'] = N.array(params['skipsa'], dtype=N.int)
 	
 	# Requirements depending on tools (where defaults are not sufficient)
 	# ===================================================================
@@ -575,6 +585,7 @@ class Tool(object):
 	
 	def __init__(self, files, params):
 		self.files = files
+		self.nfiles = len(files)
 		self.params = params
 		# Save some options common for all tools
 		self.outdir = params['outdir']
@@ -748,8 +759,6 @@ class Tool(object):
 	
 	
 	def mkuri(self, path):
-		"""
-		"""
 		_path = os.path.basename(path)
 		if (_path != path):
 			log.prNot(log.WARNING, "mkuri(): got path instead of filename.")
@@ -888,8 +897,8 @@ class SubfieldConfTool(Tool):
 		
 		sfpos = self.border + \
 			N.indices(nsf, dtype=N.float).reshape(2,-1).T * effpitch
-		sfpos = N.floor(sfpos).astype(N.int32)
-		totnsf = N.product(nsf).astype(N.int32)
+		sfpos = N.floor(sfpos, dtype=N.int)
+		totnsf = N.product(nsf, dtype=N.int)
 		
 		log.prNot(log.NOTICE, "Found %d x %d subfields." % tuple(nsf))
 		log.prNot(log.NOTICE, "Size %d,%d" % tuple(self.sfsize))
@@ -930,9 +939,9 @@ class SubaptUpdateTool(Tool):
 		
 		# Offset the new positions
 		maxsh = N.ceil(N.max(abs(off), axis=0))
-		newpos = (pos + off + maxsh).astype(N.int32)
+		newpos = (pos + off + maxsh).astype(N.int)
 		# Crop the subaperture size by twice the maximum offset
-		newsize = (size - maxsh*2).astype(N.int32)
+		newsize = (size - maxsh*2).astype(N.int)
 		# Store
 		libsh.saveSaSfConf(self.mkuri(self.file), nsa, [-1,-1], newsize, newpos)
 		if (self.plot):
@@ -995,40 +1004,70 @@ class ShiftTool(Tool):
 		if (len(self.files) < 1):
 			log.prNot(log.ERR, "ShiftTool(): Cannot continue without files!")
 		
-		pardir = \
-		 	os.path.basename(os.path.dirname(os.path.realpath(self.files[0])))
-		commonpref = os.path.commonprefix(self.files)
-		# begid = int((os.path.splitext(os.path.basename(self.files[0]))[1])[1:])
-		# endid = int((os.path.splitext(os.path.basename(self.files[-1]))[1])[1:])
-		self.dataid = "%s_%s" % (pardir, commonpref)
-		# Make sure we have a file to save results to
-		if (self.file is False):
-			self.file = os.path.realpath(self.dataid)
 		# Run analysis
 		self.run()
 	
 	
 	def run(self):
-		#import libshifts as ls
+		### Phase 1: Measure shifts
+		### -----------------------
+		
+		self.calcShifts()
+		
+		### Phase 2: Process shifts
+		### -----------------------
+		
+		if (self.nsf == 1):
+			log.prNot(log.NOTICE, "Starting post-processing.")
+			self.shifts = allshifts
+			self.postProcess()
+		
+		### End: store metadata
+		# Store the new meta file
+		metafile = lf.saveData(self.mkuri('astooki-meta-data'), \
+			self.ofiles, aspickle=True)
+	
+	
+	def calcShifts(self):
+		# Check if shifts already exist, load it if it does
+		try: 
+			metafile = self.mkuri('astooki-meta-data.pickle')
+			# Read metafile, check if entry 'shifts' exists
+			meta = lf.loadData(metafile, aspickle=True)
+			import pyfits
+			hdr = pyfits.getheader(meta['image-shifts']['fits'])
+			if (hdr.get('NAXIS') == 5 and \
+			 	hdr.get('NAXIS1') == 2 and \
+			 	hdr.get('NAXIS2') == self.nsf and \
+			 	hdr.get('NAXIS3') == self.nsa and \
+			 	hdr.get('NAXIS4') == self.nref and \
+			 	hdr.get('NAXIS5') == self.nfiles):
+				log.prNot(log.NOTICE, "Found previously measured shifts, restoring.")
+				data, meta = lf.restoreData(metafile)
+				self.ofiles = meta
+				self.shifts = data['image-shifts']
+				return
+			else:
+				raise Exception
+		except:
+			log.prNot(log.NOTICE, "Could not restore shift data, computing.")
+		
 		import astooki.clibshifts as ls
-		# Process files
+		
 		allshifts = []
 		allfiles = []
 		allrefs = []
 		for f in self.files:
 			base = os.path.basename(f)
-			# Load file
 			img = self.load(f)
 			if (img is None): 
 				log.prNot(log.INFO, "Skipping %s, could not read file." % (base))
 				continue
 			allfiles.append(base)
-			# Dark-flat file if needed
 			dfimg = self.darkflat(img)
 			
-			# Measure shift
-			refaps = []
 			log.prNot(log.NOTICE, "Measuring shifts for %s." % (base))
+			refaps = []
 			imgshifts = ls.calcShifts(dfimg, self.saccdpos, self.saccdsize, \
 			 	self.sfccdpos, self.sfccdsize, method=ls.COMPARE_ABSDIFFSQ, \
 			 	extremum=ls.EXTREMUM_2D9PTSQ, refmode=ls.REF_BESTRMS, \
@@ -1037,35 +1076,58 @@ class ShiftTool(Tool):
 			allrefs.append(refaps)
 			allshifts.append(imgshifts)
 		
-		# Process results, store to disk
 		log.prNot(log.NOTICE, "Done, saving results to disk @ '%s'." % (self.file))
 		allshifts = N.array(allshifts)
-		# Store the list of files where we save data to
 		
-		self.ofiles['shifts'] = lf.saveData(self.mkuri(self.file + '-shifts'), \
+		# Store the list of files where we save data to
+		self.ofiles['shifts'] = lf.saveData(self.mkuri('image-shifts'), \
 		 	allshifts, asnpy=True, asfits=True)
-		self.ofiles['refaps'] = lf.saveData(self.mkuri(self.file + '-refaps'), \
+		self.ofiles['refaps'] = lf.saveData(self.mkuri('referenace-subaps'), \
 			allrefs, asnpy=True, ascsv=True)
-		self.ofiles['saccdpos'] = lf.saveData(self.mkuri(\
-			self.file + '-saccdpos'), self.saccdpos, asnpy=True, asfits=True)
-		self.ofiles['sfccdpos'] = lf.saveData(self.mkuri(\
-			self.file + '-sfccdpos'), self.sfccdpos, asnpy=True, asfits=True)
-		self.ofiles['saccdsize'] = lf.saveData(self.mkuri(\
-			self.file + '-saccdsize'), self.saccdsize, asnpy=True, asfits=True)
-		self.ofiles['sfccdsize'] = lf.saveData(self.mkuri(\
-			self.file + '-sfccdsize'), self.sfccdsize, asnpy=True, asfits=True)
+		self.ofiles['saccdpos'] = lf.saveData(self.mkuri('subap-ccdpos'), \
+		 	self.saccdpos, asnpy=True, asfits=True)
+		self.ofiles['sfccdpos'] = lf.saveData(self.mkuri('subfield-ccdpos'), \
+		 	self.sfccdpos, asnpy=True, asfits=True)
+		self.ofiles['saccdsize'] = lf.saveData(self.mkuri('subap-ccdsize'), \
+		 self.saccdsize, asnpy=True, asfits=True)
+		self.ofiles['sfccdsize'] = lf.saveData(self.mkuri('subfield-ccdsize'), \
+		 	self.sfccdsize, asnpy=True, asfits=True)
 		cpos = self.saccdpos.reshape(-1,1,2) + self.sfccdpos.reshape(1,-1,2) + \
 			self.sfccdsize.reshape(1,1,2)/2.0
-		self.ofiles['sasfpos-c'] = lf.saveData(self.mkuri(\
-			self.file + '-sasfpos-c'), cpos, asnpy=True, asfits=True)
-		self.ofiles['files'] = lf.saveData(self.mkuri(self.file + '-files'), \
+		self.ofiles['sasfpos-c'] = lf.saveData(self.mkuri('sasfpos-c'), cpos, \
+		 	asnpy=True, asfits=True)
+		self.ofiles['files'] = lf.saveData(self.mkuri('processed-files'), \
 		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')
 		# Add meta info
 		self.ofiles['path'] = os.path.dirname(os.path.realpath(self.file))
-		self.ofiles['base'] = os.path.basename(self.file)
+	
+	
+	def postProcess(self):
+		# Process NaNs and other non-finite numbers
+		notfin = N.argwhere(N.isfinite(self.shifts) == False)
+		if (notfin.shape[0] > 0):
+			log.prNot(log.WARNING, "Found non-finite shifts! Check configuration.")
+			notfin_perc = notfin.shape[0]*100./self.shifts.size
+			log.prNot(log.WARNING, "%d (%.2g%%) non-finite entries, spread over %d frames, %d subaps, %d subfields." % \
+		 	(notfin.shape[0], notfin_perc, N.unique(notfin[:,0]).size, \
+		 	N.unique(notfin[:,2]).size, N.unique(notfin[:,3]).size))
 		
-		metafile = lf.saveData(self.mkuri('astooki-meta-data'), \
-			self.ofiles, aspickle=True)
+		log.prNot(log.NOTICE, "Calculating static offsets.")
+		(soff, sofferr) = libsh.procStatShift(self.shifts[:,:,:,0,:])
+		self.ofiles['offsets'] = lf.saveData(self.mkuri('static-offsets'), \
+			soff, asnpy=True, ascsv=True)
+		self.ofiles['offset-err'] = lf.saveData(\
+			self.mkuri('static-offset-err'), sofferr, asnpy=True, ascsv=True)
+		if (self.plot):
+			import astooki.libplot as libplot
+			libplot.plotShifts(self.mkuri('static-offset-plot'), self.shifts, \
+				self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
+				plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=False, \
+			 	title='Static offsets, mag=7', legend=True)
+			libplot.plotShifts(self.mkuri('static-offset-plot-100'), \
+			 	self.shifts[:100], self.saccdpos, self.saccdsize, self.sfccdpos, \
+			 	self.sfccdsize, plorigin=(0,0), plrange=(2048, 2048), mag=7.0, \
+			 	allsh=False, title='Static offsets, mag=7', legend=True)
 	
 
 
@@ -1620,7 +1682,7 @@ class SdimmTool(Tool):
 	@param ccdres angular ccd resolution [arcsec/pix]
 	@param aptr aperture radius [meter)]
 	"""
-	def __init__(self, files, params):		
+	def __init__(self, files, params):
 		super(SdimmTool, self).__init__(files, params)
 		# Load shift data
 		self.shifts = lf.loadData(params['shifts'], asnpy=True)
@@ -1630,6 +1692,8 @@ class SdimmTool(Tool):
 		# Load subfield pixel positions
 		(self.nsf, self.sfccdpos, self.sfsize) = \
 			libsh.loadSaSfConf(params['sffile'])
+		# Skip these subaps in the analysis
+		self.skipsa = N.array(params['skipsa'], dtype=N.int)
 		# Store ccd resolution in radians (arcsec -> radian == /60/60 * pi/180)
 		#self.ccdres = params['ccdres'] * N.pi /60./60./180.
 		# Telescope aperture radius
@@ -1651,13 +1715,13 @@ class SdimmTool(Tool):
 	
 	def run(self):
 		# Check for non-finite values (shouldn't be, just to make sure)
-		notfin = N.argwhere(N.isfinite(self.shifts) == False)
-		if (notfin.shape[0] > 0):
-			log.prNot(log.WARNING, 
-				"Some measurements are non-finite, check configuration!")
-			# TODO: setting to zero is a poor solution to fixing NaNs
-			for nfidx in notfin:
-				self.shifts[tuple(nfidx)] = 0.0
+		# notfin = N.argwhere(N.isfinite(self.shifts) == False)
+		# if (notfin.shape[0] > 0):
+		# 	log.prNot(log.WARNING, 
+		# 		"Some measurements are non-finite, check configuration!")
+		# 	# TODO: setting to zero is a poor solution to fixing NaNs
+		# 	for nfidx in notfin:
+		# 		self.shifts[tuple(nfidx)] = 0.0
 		
 		# Average over number of references
 		shifts = self.shifts.mean(axis=1)
@@ -1675,11 +1739,13 @@ class SdimmTool(Tool):
 		for sarowpos in sarows:
 			# Get a list of all subapertures at this row (i.e. same y coordinate)
 			salist = N.argwhere(self.sapos[:,1] == sarowpos).flatten()
+			# Exclude bad subaps
+			salist = N.lib.arraysetops.setdiff1d(salist, self.skipsa)
 			# Take a reference subaperture in this row (the one on the left)
 			refsa = salist[N.argmin(self.sapos[salist][:,0])]
 			# Loop over all subapertures in this row
 			for rowsa in salist:
-				if (rowsa == refsa): continue
+				#if (rowsa == refsa): continue
 				log.prNot(log.NOTICE, "ROW: Comparing subap %d with subap %d." % \
 					(refsa, rowsa))
 				# Calculate the distance between these two subaps
@@ -1692,7 +1758,7 @@ class SdimmTool(Tool):
 					refsf = sflist[N.argmin(self.sfccdpos[sflist][:,0])]
 					# Loop over all subfields in this row
 					for rowsf in sflist:
-						if (rowsf == refsf): continue
+						#if (rowsf == refsf): continue
 						# Calculate the angle between these subfields (in *pixels*! 
 						# multiply with pixel scale to get real angles)
 						a = self.sfccdpos[rowsf, 0] - self.sfccdpos[refsf, 0]
@@ -1715,7 +1781,7 @@ class SdimmTool(Tool):
 			salist = N.argwhere(self.sapos[:,0] == sacolpos).flatten()
 			refsa = salist[N.argmin(self.sapos[salist][:,1])]
 			for colsa in salist:
-				if (colsa == refsa): continue
+				#if (colsa == refsa): continue
 				log.prNot(log.NOTICE, "COLUMN: Comparing subap %d with subap %d." % \
 					(refsa, colsa))
 				s = self.sapos[colsa, 1] - self.sapos[refsa, 1]
@@ -1723,7 +1789,7 @@ class SdimmTool(Tool):
 					sflist = N.argwhere(self.sfccdpos[:,0] == sfcolpos).flatten()
 					refsf = sflist[N.argmin(self.sfccdpos[sflist][:,1])]
 					for colsf in sflist:
-						if (colsf == refsf): continue
+						#if (colsf == refsf): continue
 						a = self.sfccdpos[colsf, 1] - self.sfccdpos[refsf, 1]
 						dx_s0 = shifts[:, refsa, refsf, :] - shifts[:, colsa, refsf, :]
 						dx_sa = shifts[:, refsa, colsf, :] - shifts[:, colsa, colsf, :]
