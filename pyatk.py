@@ -820,7 +820,30 @@ class Tool(object):
 
 
 class SubaptConfTool(Tool):
-	"""Calculate configurations."""
+	"""
+	Make a subaperture mask, given a number of geometric input parameters.
+	
+	This tool calculates a set of coordinates where subapertures or subimages 
+	are located and saves these to disk. Optionally, the pattern can be plotted
+	as well. The units for the parameters are arbitrary, but should be 
+	consistent.
+	
+	The difference between subapertures and subimages is the plane they are 
+	located in. Subapertures are located in the aperture plane (i.e. on the 
+	lenslet) while subimages are located on the CCD. For this tool this is 
+	obviously irrelevant, but the meaning can be quite different. Unfortunately, 
+	some of the nomenclature in astooki is ambigious about this.
+	
+	@param rad Telescope aperture radius
+	@param shape Shape of the telescope aperture (circular or square)
+	@param sasize Subapertures size
+	@param pitch Pitch of the subaperture positions
+	@param xoff x-offset of even and odd rows in units of sasize. Set to [0,0.5]
+		to get a brick-pattern grid, useful for hexagonal lenslet arrays.
+	@param scale Scale the grid by this factor
+	@param disp Displace the grid by this vector
+	@param file Base filename to save the pattern to
+	"""
 	def __init__(self, files, params):
 		super(SubaptConfTool, self).__init__(files, params)
 		# Subaperture pattern radius
@@ -866,7 +889,32 @@ class SubaptConfTool(Tool):
 
 
 class SubfieldConfTool(Tool):
-	"""Calculate subfield configurations."""
+	"""
+	Make a subfield mask, given a number of geometric input parameters.
+	
+	This is more or less the same as SubaptConfTool(), except that this tool
+	generates a subfield mask and takes slightly different parameters. The 
+	subfield mask will be a set of (pixel) coordinates relative to the origin of 
+	a subaperture that define crops of the subimages on the CCD. Since pixel in 
+	a subimage corresponds to a different field of view and view angle, a grid 
+	of masks for a subimage correspond to a grid of different fields of view. 
+	This grid can be used to calculate the subfield shifts that can consequently 
+	be used to analyze the seeing recorded in the data.
+	
+	The grid generated is relative to the subimage, so the size of such a 
+	subimage is relevant: subfields cannot lie *outside* this subimage. Also, 
+	when later measuring the shifts for each subfield within a subimage, one 
+	will have to move the subfield around to measure the cross-correlation. 
+	Therefore one should supply a border which will take care of this and keep a 
+	guard range free at the edge of the subimage. The shift range used later 
+	should always be less or equal to the border supplied here.
+	
+	@param sasize The subaperture size to be used
+	@param sfsize The subfield size
+	@param overlap The overlap in x and y direction. 1 for complete overlap, 0 
+	  for no overlap. [0.5, 0.5] gives about 50%% overlap
+	@param border The border or guard range to keep clear withins sasize
+	"""
 	def __init__(self, files, params):
 		super(SubfieldConfTool, self).__init__(files, params)
 		# Subaperture size
@@ -897,8 +945,8 @@ class SubfieldConfTool(Tool):
 		
 		sfpos = self.border + \
 			N.indices(nsf, dtype=N.float).reshape(2,-1).T * effpitch
-		sfpos = N.floor(sfpos, dtype=N.int)
-		totnsf = N.product(nsf, dtype=N.int)
+		sfpos = N.floor(sfpos).astype(N.int)
+		totnsf = N.product(nsf).astype(N.int)
 		
 		log.prNot(log.NOTICE, "Found %d x %d subfields." % tuple(nsf))
 		log.prNot(log.NOTICE, "Size %d,%d" % tuple(self.sfsize))
@@ -914,7 +962,43 @@ class SubfieldConfTool(Tool):
 
 
 class SubaptUpdateTool(Tool):
-	"""Update subaperture configurations with an offset."""
+	"""
+	Update subaperture mask with an offset.
+	
+	Since we want to compare different subfields within each subimage, we need 
+	to know the reference direction of each subimage. Because of static 
+	aberrations (telescope defocus, instrument issues) we cannot assume that 
+	pixel (x,y) in subimage N corresponds to the same field of view as the same 
+	pixel in subimage M. Or the other way around: given a granule G on the sun, 
+	we want to know at what pixel that granule is located in each of the 
+	subimages.
+	
+	To get these 'static offsets', we take a large field of view in one 
+	reference subimage (almost the complete subimage) and cross-correlate that 
+	with all subimages. This will give N shift vectors for each frame, N being 
+	the number of subapertures. To get better results, it is possible to use 
+	multiple subapertures as reference, this should give the same data and gives 
+	an indication of the noise or reliability of the shift measurement. The 
+	image shifts measured for different reference subapertures will be stored 
+	alongside eachother.
+	
+	Because there is atmospheric seeing which causes tip-tilt of the images, the 
+	image shifts will vary strongly from frame to frame. The seeing is 
+	statistical, however, which means that the average shift over all frames 
+	should be zero. To get the static offsets and identify the relative field of 
+	view of all subimages, we average the image shifts over all frames. This 
+	gives a offset vector for each subimage which indicates where the subimage 
+	is pointing at relative to the other subimages.
+	
+	If we correct the subimage mask calculated earlier with this list of 
+	vectors, each subimage mask will be pointing at the same location on the 
+	sun. Once we have established this, we can subdivide the subimages in 
+	different subfields knowing exactly where each subfield points and thus 
+	providing a reliable method to base subsequent analysis on.
+	
+	@param maskfile The subaperture mask to be updated
+	@param offsets A list of offset vectors
+	"""
 	def __init__(self, files, params):
 		super(SubaptUpdateTool, self).__init__(files, params)
 		# Output file
@@ -923,7 +1007,6 @@ class SubaptUpdateTool(Tool):
 		self.offsets = params['offsets']
 		
 		self.run()
-		
 	
 	
 	def run(self):
@@ -956,7 +1039,37 @@ class SubaptUpdateTool(Tool):
 
 
 class SubaptOptTool(Tool):
-	"""Optimize subaperture configurations."""
+	"""
+	Optimize subaperture configurations on real data.
+	
+	Although a subaperture mask made with SubaptConfTool() will be fairly 
+	accurate if it is supplied with the right parameters, it is still possible 
+	that the mask does not match the subimages exactly. To circumvent this 
+	problem, SubaptOptTool() can take the statically generated subimage mask and 
+	a flatfield image and match the mask onto the flatfield.
+	
+	The method used here is as follows. Given the mask, at each centroid grid
+	position take a vertial slice out of the flatfield that is ~30 pixels wide 
+	and twice the subimage high. This slice should cover the whole flatfielded 
+	subimage. This slice is then averaged over the width, giving a 1 pixel wide 
+	profile vertically across the subimage flatfield. The first pixel to the top 
+	and bottom from the center of the slice where the intensity is lower than X 
+	times the maximum intensity of the slice is considered to be the edge of the 
+	subimage. This will give the height of the subimage. The same routine is 
+	also done for horizontally across the subimage to get the width.
+	
+	The drawback of this routine is that is needs the flatfield and real image 
+	to match perfectly. Fortunately, this should and ususally is that case. 
+	Furthermore, if there is a speck of dust on the flatfielded image, this can 
+	fool this tool. One should therefore always check the output, for example by 
+	plotting the grid or testing the grid by using it as a mask on real data.
+	
+	@param maskfile The subaperture grid to optimize
+	@param saifac The intensity dropoff factor to use (X in the above info)
+	@param rad The radius of the subaperture grid pattern (used for plotting 
+		only)
+	
+	"""
 	def __init__(self, files, params):
 		super(SubaptOptTool, self).__init__(files, params)
 		# Output file
@@ -989,7 +1102,16 @@ class SubaptOptTool(Tool):
 
 
 class ShiftTool(Tool):
-	"""Calculate shifts between different subfields and subapertures."""
+	"""
+	Calculate shifts between different subfields and subapertures, possibly 
+	do some post-processing.
+	
+	@param shrange Shiftrange to measure in pixels (actual shiftrange will be 
+		from -shrange to +shrange)
+	@param safile Subaperture CCD position file
+	@param sffile Subfield CCD position file
+	@param nref Number of reference subapertures to use
+	"""
 	def __init__(self, files, params):
 		super(ShiftTool, self).__init__(files, params)
 		self.shrange = params['shrange']
@@ -1019,11 +1141,9 @@ class ShiftTool(Tool):
 		
 		if (self.nsf == 1):
 			log.prNot(log.NOTICE, "Starting post-processing.")
-			self.shifts = allshifts
 			self.postProcess()
 		
 		### End: store metadata
-		# Store the new meta file
 		metafile = lf.saveData(self.mkuri('astooki-meta-data'), \
 			self.ofiles, aspickle=True)
 	
@@ -1035,7 +1155,7 @@ class ShiftTool(Tool):
 			# Read metafile, check if entry 'shifts' exists
 			meta = lf.loadData(metafile, aspickle=True)
 			import pyfits
-			hdr = pyfits.getheader(meta['image-shifts']['fits'])
+			hdr = pyfits.getheader(self.mkuri(meta['shifts']['fits']))
 			if (hdr.get('NAXIS') == 5 and \
 			 	hdr.get('NAXIS1') == 2 and \
 			 	hdr.get('NAXIS2') == self.nsf and \
@@ -1045,7 +1165,7 @@ class ShiftTool(Tool):
 				log.prNot(log.NOTICE, "Found previously measured shifts, restoring.")
 				data, meta = lf.restoreData(metafile)
 				self.ofiles = meta
-				self.shifts = data['image-shifts']
+				self.shifts = data['shifts']
 				return
 			else:
 				raise Exception
@@ -1077,11 +1197,11 @@ class ShiftTool(Tool):
 			allshifts.append(imgshifts)
 		
 		log.prNot(log.NOTICE, "Done, saving results to disk @ '%s'." % (self.file))
-		allshifts = N.array(allshifts)
+		self.shifts = N.array(allshifts)
 		
 		# Store the list of files where we save data to
 		self.ofiles['shifts'] = lf.saveData(self.mkuri('image-shifts'), \
-		 	allshifts, asnpy=True, asfits=True)
+		 	self.shifts, asnpy=True, asfits=True)
 		self.ofiles['refaps'] = lf.saveData(self.mkuri('referenace-subaps'), \
 			allrefs, asnpy=True, ascsv=True)
 		self.ofiles['saccdpos'] = lf.saveData(self.mkuri('subap-ccdpos'), \
@@ -1099,7 +1219,7 @@ class ShiftTool(Tool):
 		self.ofiles['files'] = lf.saveData(self.mkuri('processed-files'), \
 		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')
 		# Add meta info
-		self.ofiles['path'] = os.path.dirname(os.path.realpath(self.file))
+		self.ofiles['path'] = os.path.dirname(os.path.realpath(self.mkuri('tst')))
 	
 	
 	def postProcess(self):
@@ -1112,8 +1232,27 @@ class ShiftTool(Tool):
 		 	(notfin.shape[0], notfin_perc, N.unique(notfin[:,0]).size, \
 		 	N.unique(notfin[:,2]).size, N.unique(notfin[:,3]).size))
 		
+		# Find the shift variance per subaperture
+		log.prNot(log.NOTICE, "Calculating shift statistics.")
+		
+		# First average over all Nref reference subapertures
+		s_ref = N.mean(self.shifts[:,:,:,0,:], axis=1)
+		# Now make sure the average *per frame* is zero
+		s_avgfr = N.mean(s_ref, axis=1)
+		s_norm = s_ref - s_avgfr.reshape(-1,1,2)
+		
+		# Calculate variance per subaperture
+		savar = N.var(s_norm, axis=0)
+		log.prNot(log.NOTICE, "Average shift variance: (%g,%g), max: (%g,%g)" % \
+			(tuple(N.mean(savar,0)) +  tuple(N.max(savar,0))))
+		self.ofiles['shift-var'] = lf.saveData(self.mkuri('shift-variance'), \
+			savar, asnpy=True, ascsv=True)
+		
+		# Now average over all frames to get the offset. Also calculate the error
 		log.prNot(log.NOTICE, "Calculating static offsets.")
-		(soff, sofferr) = libsh.procStatShift(self.shifts[:,:,:,0,:])
+		soff = N.mean(s_norm, axis=0)
+		sofferr = (N.var(s_norm, axis=0))**0.5
+		
 		self.ofiles['offsets'] = lf.saveData(self.mkuri('static-offsets'), \
 			soff, asnpy=True, ascsv=True)
 		self.ofiles['offset-err'] = lf.saveData(\
@@ -1124,8 +1263,8 @@ class ShiftTool(Tool):
 				self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
 				plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=False, \
 			 	title='Static offsets, mag=7', legend=True)
-			libplot.plotShifts(self.mkuri('static-offset-plot-100'), \
-			 	self.shifts[:100], self.saccdpos, self.saccdsize, self.sfccdpos, \
+			libplot.plotShifts(self.mkuri('static-offset-plot-250'), \
+			 	self.shifts[:250], self.saccdpos, self.saccdsize, self.sfccdpos, \
 			 	self.sfccdsize, plorigin=(0,0), plrange=(2048, 2048), mag=7.0, \
 			 	allsh=False, title='Static offsets, mag=7', legend=True)
 	
