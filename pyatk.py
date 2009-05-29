@@ -590,6 +590,8 @@ class Tool(object):
 	"""Generic Tool class with common functions."""
 	
 	def __init__(self, files, params):
+		# Init starttime
+		self.start = time.time()
 		self.files = files
 		self.nfiles = len(files)
 		self.params = params
@@ -1175,9 +1177,8 @@ class ShiftTool(Tool):
 		### Phase 2: Process shifts
 		### -----------------------
 		
-		if (self.nsf == 1):
-			log.prNot(log.NOTICE, "Starting post-processing.")
-			self.postProcess()
+		log.prNot(log.NOTICE, "Starting post-processing.")
+		self.postProcess()
 		
 		### End: store metadata
 		metafile = lf.saveData(self.mkuri('astooki-meta-data'), \
@@ -1226,30 +1227,46 @@ class ShiftTool(Tool):
 			allfiles.append(base)
 			dfimg = self.darkflat(img)
 			
-			log.prNot(log.NOTICE, "Measuring shifts for %s." % (base))
+			togo = (len(self.files) - len(allfiles)) * \
+				(time.time() - self.start) / len(allfiles)
+			eta = time.localtime(time.time() + round(togo))
+			log.prNot(log.NOTICE, "Processing %s, ETA @ %s, (%g sec)" % \
+				(base, time.strftime("%H:%M:%S", eta), togo))
 			refaps = []
 			imgshifts = ls.calcShifts(dfimg, self.saccdpos, self.saccdsize, \
 			 	self.sfccdpos, self.sfccdsize, method=ls.COMPARE_ABSDIFFSQ, \
 			 	extremum=ls.EXTREMUM_2D9PTSQ, refmode=ls.REF_BESTRMS, \
 			 	refopt=self.nref, shrange=[self.shrange, self.shrange], \
 				mask=self.mask, subfields=None, corrmaps=None, refaps=refaps)
-			print imgshifts.dtype
 			allrefs.append(refaps)
 			allshifts.append(imgshifts)
 		
 		log.prNot(log.NOTICE, "Done, saving results to disk.")
 		self.shifts = N.array(allshifts)
-		print self.shifts.dtype
-		# Store the list of files where we save data to
 		self.ofiles['shifts'] = lf.saveData(self.mkuri('image-shifts'), \
 		 	self.shifts, asnpy=True, asfits=True)
+		self.ofiles['refaps'] = lf.saveData(self.mkuri('referenace-subaps'), \
+			allrefs, asnpy=True, ascsv=True)
+	
+	
+	def postProcess(self):
+		# Process NaNs and other non-finite numbers
+		notfin = N.argwhere(N.isfinite(self.shifts) == False)
+		if (notfin.shape[0] > 0):
+			log.prNot(log.WARNING, "Found non-finite shifts! Check configuration.")
+			notfin_perc = notfin.shape[0]*100./self.shifts.size
+			log.prNot(log.WARNING, "%d (%.2g%%) non-finite entries, spread over %d frames, %d subaps, %d subfields." % \
+		 	(notfin.shape[0], notfin_perc, N.unique(notfin[:,0]).size, \
+		 	N.unique(notfin[:,2]).size, N.unique(notfin[:,3]).size))
+		
+		# Find the shift variance per subaperture
+		log.prNot(log.NOTICE, "Calculating shift statistics.")
+		
 		# Store variance maps to find bad subapertures/subfields
 		var = N.var(N.mean(self.shifts,1), 0)
 		varmap = N.r_[[var[...,0], var[...,1]]]
 		self.ofiles['variance'] = lf.saveData(self.mkuri('shifts-variance'), \
 			 varmap, asnpy=True, asfits=True)
-		self.ofiles['refaps'] = lf.saveData(self.mkuri('referenace-subaps'), \
-			allrefs, asnpy=True, ascsv=True)
 		self.ofiles['saccdpos'] = lf.saveData(self.mkuri('subap-ccdpos'), \
 		 	self.saccdpos, asnpy=True, asfits=True)
 		self.ofiles['sfccdpos'] = lf.saveData(self.mkuri('subfield-ccdpos'), \
@@ -1266,53 +1283,41 @@ class ShiftTool(Tool):
 		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')
 		# Add meta info
 		self.ofiles['path'] = os.path.dirname(os.path.realpath(self.mkuri('tst')))
-	
-	
-	def postProcess(self):
-		# Process NaNs and other non-finite numbers
-		notfin = N.argwhere(N.isfinite(self.shifts) == False)
-		if (notfin.shape[0] > 0):
-			log.prNot(log.WARNING, "Found non-finite shifts! Check configuration.")
-			notfin_perc = notfin.shape[0]*100./self.shifts.size
-			log.prNot(log.WARNING, "%d (%.2g%%) non-finite entries, spread over %d frames, %d subaps, %d subfields." % \
-		 	(notfin.shape[0], notfin_perc, N.unique(notfin[:,0]).size, \
-		 	N.unique(notfin[:,2]).size, N.unique(notfin[:,3]).size))
 		
-		# Find the shift variance per subaperture
-		log.prNot(log.NOTICE, "Calculating shift statistics.")
+		if (self.nsf == 1):
+			# First average over all Nref reference subapertures
+			s_ref = N.mean(self.shifts[:,:,:,0,:], axis=1)
+			# Now make sure the average *per frame* is zero
+			s_avgfr = N.mean(s_ref, axis=1)
+			s_norm = s_ref - s_avgfr.reshape(-1,1,2)
 		
-		# First average over all Nref reference subapertures
-		s_ref = N.mean(self.shifts[:,:,:,0,:], axis=1)
-		# Now make sure the average *per frame* is zero
-		s_avgfr = N.mean(s_ref, axis=1)
-		s_norm = s_ref - s_avgfr.reshape(-1,1,2)
+			# Calculate variance per subaperture
+			savar = N.var(s_norm, axis=0)
+			log.prNot(log.NOTICE, "Average shift variance: (%g,%g), max: (%g,%g)" % \
+				(tuple(N.mean(savar,0)) +  tuple(N.max(savar,0))))
+			# Deprecated: already stored in calcShifts() itself.
+			#self.ofiles['shift-var'] = lf.saveData(self.mkuri('shift-variance'), \
+			#	savar, asnpy=True, ascsv=True)
 		
-		# Calculate variance per subaperture
-		savar = N.var(s_norm, axis=0)
-		log.prNot(log.NOTICE, "Average shift variance: (%g,%g), max: (%g,%g)" % \
-			(tuple(N.mean(savar,0)) +  tuple(N.max(savar,0))))
-		self.ofiles['shift-var'] = lf.saveData(self.mkuri('shift-variance'), \
-			savar, asnpy=True, ascsv=True)
+			# Now average over all frames to get the offset. Also calculate the error
+			log.prNot(log.NOTICE, "Calculating static offsets.")
+			soff = N.mean(s_norm, axis=0)
+			sofferr = (N.var(s_norm, axis=0))**0.5
 		
-		# Now average over all frames to get the offset. Also calculate the error
-		log.prNot(log.NOTICE, "Calculating static offsets.")
-		soff = N.mean(s_norm, axis=0)
-		sofferr = (N.var(s_norm, axis=0))**0.5
-		
-		self.ofiles['offsets'] = lf.saveData(self.mkuri('static-offsets'), \
-			soff, asnpy=True, ascsv=True)
-		self.ofiles['offset-err'] = lf.saveData(\
-			self.mkuri('static-offset-err'), sofferr, asnpy=True, ascsv=True)
-		if (self.plot):
-			import astooki.libplot as libplot
-			libplot.plotShifts(self.mkuri('static-offset-plot'), self.shifts, \
-				self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
-				plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=False, \
-			 	title='Static offsets, mag=7', legend=True)
-			libplot.plotShifts(self.mkuri('static-offset-plot-250'), \
-			 	self.shifts[:250], self.saccdpos, self.saccdsize, self.sfccdpos, \
-			 	self.sfccdsize, plorigin=(0,0), plrange=(2048, 2048), mag=7.0, \
-			 	allsh=False, title='Static offsets, mag=7', legend=True)
+			self.ofiles['offsets'] = lf.saveData(self.mkuri('static-offsets'), \
+				soff, asnpy=True, ascsv=True)
+			self.ofiles['offset-err'] = lf.saveData(\
+				self.mkuri('static-offset-err'), sofferr, asnpy=True, ascsv=True)
+			if (self.plot):
+				import astooki.libplot as libplot
+				libplot.plotShifts(self.mkuri('static-offset-plot'), self.shifts, \
+					self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
+					plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=False, \
+				 	title='Static offsets, mag=7', legend=True)
+				libplot.plotShifts(self.mkuri('static-offset-plot-250'), \
+				 	self.shifts[:250], self.saccdpos, self.saccdsize, self.sfccdpos, \
+				 	self.sfccdsize, plorigin=(0,0), plrange=(2048, 2048), mag=7.0, \
+				 	allsh=False, title='Static offsets, mag=7', legend=True)
 	
 
 
