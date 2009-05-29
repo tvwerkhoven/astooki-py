@@ -129,7 +129,8 @@ help_message['shifts'] = """Shifts options
  -r, --range=INT             shift range to use for cross-correlation [7]
      --safile=FILEPATH       subaperture locations, same format as maskfile
      --sffile=FILEPATH       subfield locations w.r.t. subaperture locations
- -n, --nref=INT              number of references to use [4]"""
+ -n, --nref=INT              number of references to use [4]
+     --mask=MASK             mask to use when correlating (circular or none)"""
 
 help_message['procshifts'] = """Procshifts options
      --safile=FILEPATH       subaperture locations, same format as maskfile
@@ -288,7 +289,7 @@ def parse_options():
 	
 	params = get_defaults(tool)
 	
-	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "pitch=", "xoff=", "origin", "noorigin", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log=", "skip=", "ccdres=", "aptr=", "layerheights=", "nheights=", "layercells=", "skipsa="])
+	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "pitch=", "xoff=", "origin", "noorigin", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "mask=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log=", "skip=", "ccdres=", "aptr=", "layerheights=", "nheights=", "layercells=", "skipsa="])
 	# Remaining 'args' must be files
 	files = args
 	
@@ -345,6 +346,7 @@ def parse_options():
 		if option in ["--safile"]: params['safile'] = os.path.realpath(value)
 		if option in ["--sffile"]: params['sffile'] = os.path.realpath(value)
 		if option in ["-n", "--nref"]: params['nref'] = N.int32(value)
+		if option in ["--mask"]: params['mask'] = value
 		# Tomo / sdimm
 		if option in ["--ccdres"]: params['ccdres'] = float(value)
 		if option in ["--aptr"]: params['aptr'] = float(value)
@@ -520,9 +522,13 @@ def check_params(tool, params):
 	
 	if params.has_key('layercells'):
 		try: params['layercells'] = \
-			 N.array(params['layercells'], dtype=N.int)[[0,1]]
+			N.array(params['layercells'], dtype=N.int)[[0,1]]
 		except: 
 			log.prNot(log.ERR, "layercells invalid, should be <int>,<int>.")
+	
+	if params.has_key('mask') and \
+		(params['mask'] not in ['circular', 'none']):
+		log.prNot(log.ERR, "mask invalid, should be 'circular' or 'none'.")
 		
 	if params.has_key('skipsa'):
 		params['skipsa'] = N.array(params['skipsa'], dtype=N.int)
@@ -1106,11 +1112,40 @@ class ShiftTool(Tool):
 	Calculate shifts between different subfields and subapertures, possibly 
 	do some post-processing.
 	
+	Processing the output of a (Shack-Hartmann) wavefront sensor starts with 
+	calculating the image shifts between various subimages and subfields. Given 
+	a set of subimage and subfield coordinates, this tool calculats the image 
+	shifts for those subimages/subfields.
+	
+	The image shifts are calculated per frame. For each frame, the <nref> 
+	subimages with the highest RMS value are selected as reference subimages. 
+	Each reference subimage is compared with all subimages (also with itself). 
+	For each pair of subimages, the image shift is calculated for all subfields. 
+	In total this yields a 5-dimensional N_files * N_references * N_subapertures 
+	* N_subfields * 2 matrix of data. This data is stored in FITS and NumPy 
+	binary format in 'image-shifts.<fits|npy>' as 32-bit float values. Note that 
+	these files will become rather big, a typical set of 1000 frames with 2 
+	references, 85 subapertures and about 270 subfields will already result in 
+	350 megabytes of data.
+	
+	Calculating the image shifts is done in two steps. First a comparison map is 
+	made as function of the shift vector. This is done by comparing a reference 
+	subimage with a slightly shifted subimage. The method to compare the image 
+	with the reference can be a cross-correlation, the absolute difference 
+	squared, or the squared difference of the two images.
+	
+	After the comparison map is calculated, the maximum value indicates the  
+	shift which matches the image with the reference best. To get a subpixel 
+	shift vector, the maximum is interpolated from a few pixels around the 
+	maximum value. This can be done with a 9-point or a 5-point quadratic 
+	interpolation.
+	
 	@param shrange Shiftrange to measure in pixels (actual shiftrange will be 
 		from -shrange to +shrange)
 	@param safile Subaperture CCD position file
 	@param sffile Subfield CCD position file
 	@param nref Number of reference subapertures to use
+	@param mask Mask to use when comparing images ('circular' or 'none')
 	"""
 	def __init__(self, files, params):
 		super(ShiftTool, self).__init__(files, params)
@@ -1118,6 +1153,7 @@ class ShiftTool(Tool):
 		self.safile = params['safile']
 		self.sffile = params['sffile']
 		self.nref = params['nref']
+		self.mask = params['mask']
 		# Load safile and sffile
 		(self.nsa, self.saccdpos, self.saccdsize) = \
 			libsh.loadSaSfConf(self.safile)
@@ -1174,6 +1210,10 @@ class ShiftTool(Tool):
 		
 		import astooki.clibshifts as ls
 		
+		# Convert mask
+		if self.mask == 'circular': self.mask = ls.MASK_CIRC
+		else: self.mask = None
+		
 		allshifts = []
 		allfiles = []
 		allrefs = []
@@ -1192,16 +1232,22 @@ class ShiftTool(Tool):
 			 	self.sfccdpos, self.sfccdsize, method=ls.COMPARE_ABSDIFFSQ, \
 			 	extremum=ls.EXTREMUM_2D9PTSQ, refmode=ls.REF_BESTRMS, \
 			 	refopt=self.nref, shrange=[self.shrange, self.shrange], \
-			 	subfields=None, corrmaps=None, refaps=refaps)
+				mask=self.mask, subfields=None, corrmaps=None, refaps=refaps)
+			print imgshifts.dtype
 			allrefs.append(refaps)
 			allshifts.append(imgshifts)
 		
-		log.prNot(log.NOTICE, "Done, saving results to disk @ '%s'." % (self.file))
+		log.prNot(log.NOTICE, "Done, saving results to disk.")
 		self.shifts = N.array(allshifts)
-		
+		print self.shifts.dtype
 		# Store the list of files where we save data to
 		self.ofiles['shifts'] = lf.saveData(self.mkuri('image-shifts'), \
 		 	self.shifts, asnpy=True, asfits=True)
+		# Store variance maps to find bad subapertures/subfields
+		var = N.var(N.mean(self.shifts,1), 0)
+		varmap = N.r_[[var[...,0], var[...,1]]]
+		self.ofiles['variance'] = lf.saveData(self.mkuri('shifts-variance'), \
+			 varmap, asnpy=True, asfits=True)
 		self.ofiles['refaps'] = lf.saveData(self.mkuri('referenace-subaps'), \
 			allrefs, asnpy=True, ascsv=True)
 		self.ofiles['saccdpos'] = lf.saveData(self.mkuri('subap-ccdpos'), \
@@ -1351,7 +1397,15 @@ class StatsTool(Tool):
 
 
 class ConvertTool(Tool):
-	"""Convert files to different format"""
+	"""
+	Convert files to different format.
+	
+	This tool is similar to the 'convert' program in the Imagemagick suite, 
+	except it focuses on astronomical dataformats. As input, it can read ANA, 
+	FITS or Numpy files, and output all of those as well as PNG files. Note that 
+	PNG is limited to 2 dimensional data, while the other formats can hold up to 
+	8-dimensional data.
+	"""
 	def __init__(self, files, params):
 		super(ConvertTool, self).__init__(files, params)
 		self.file = params['file']
@@ -1404,7 +1458,9 @@ class ConvertTool(Tool):
 
 
 class ShiftOverlayTool(Tool):
-	"""Crop out one subaperture, overlay shift vectors, output PNGs"""
+	"""
+	Crop out one subaperture, overlay shift vectors, output PNGs
+	"""
 	def __init__(self, files, params):
 		super(ShiftOverlayTool, self).__init__(files, params)
 		self.file = params['file']
@@ -1493,6 +1549,7 @@ class ShiftOverlayTool(Tool):
 					log.prNot(log.NOTICE, "Scaling image by %g (from %d,%d to %d,%d)."%\
 					 	(nsc, orig[1], orig[0], data.shape[1], data.shape[0]))
 					nsc = (N.array(data.shape)*1.0/N.array(orig))[::-1]
+				else: nsc = 1.0
 				# Clip intensity if necessary
 				if (self.intclip is not False):
 					log.prNot(log.NOTICE, "Clipping intensity to %g--%g." % \
