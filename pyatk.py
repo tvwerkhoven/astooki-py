@@ -1207,7 +1207,17 @@ class ShiftTool(Tool):
 			else:
 				raise Exception
 		except:
-			log.prNot(log.NOTICE, "Could not restore shift data, computing.")
+			pass
+		
+		try:
+			self.shifts = N.load(self.mkuri('image-shifts.npy'))
+			if (self.shifts.shape == \
+				(self.nfiles, self.nref, self.nsa, self.nsf,2)): 
+				log.prNot(log.NOTICE, "Found previously measured shifts, restoring.")
+				return
+			else: raise Exception
+		except:
+			pass
 		
 		import astooki.clibshifts as ls
 		
@@ -1247,6 +1257,8 @@ class ShiftTool(Tool):
 		 	self.shifts, asnpy=True, asfits=True)
 		self.ofiles['refaps'] = lf.saveData(self.mkuri('referenace-subaps'), \
 			allrefs, asnpy=True, ascsv=True)
+		self.ofiles['files'] = lf.saveData(self.mkuri('processed-files'), \
+		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')			
 	
 	
 	def postProcess(self):
@@ -1279,10 +1291,8 @@ class ShiftTool(Tool):
 			self.sfccdsize.reshape(1,1,2)/2.0
 		self.ofiles['sasfpos-c'] = lf.saveData(self.mkuri('sasfpos-c'), cpos, \
 		 	asnpy=True, asfits=True)
-		self.ofiles['files'] = lf.saveData(self.mkuri('processed-files'), \
-		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')
 		# Add meta info
-		self.ofiles['path'] = os.path.dirname(os.path.realpath(self.mkuri('tst')))
+		self.ofiles['path'] = os.path.dirname(os.path.realpath(self.mkuri('.')))
 		
 		if (self.nsf == 1):
 			# First average over all Nref reference subapertures
@@ -1943,60 +1953,76 @@ class SdimmTool(Tool):
 			# Exclude bad subaps
 			salist = N.lib.arraysetops.setdiff1d(salist, self.skipsa)
 			# Take a reference subaperture in this row (the one on the left)
-			refsa = salist[N.argmin(self.sapos[salist][:,0])]
+			#refsa = salist[N.argmin(self.sapos[salist][:,0])]
 			# Loop over all subapertures in this row
-			for rowsa in salist:
-				#if (rowsa == refsa): continue
-				log.prNot(log.NOTICE, "ROW: Comparing subap %d with subap %d." % \
-					(refsa, rowsa))
-				# Calculate the distance between these two subaps
-				s = self.sapos[rowsa, 0] - self.sapos[refsa, 0]
-				# Loop over all subfield rows
-				for sfrowpos in sfrows:
-					# Get a list of all subfields at this row (i.e. same y coordinate)
-					sflist = N.argwhere(self.sfccdpos[:,1] == sfrowpos).flatten()
-					# Take a reference subaperture in this row (the one on the left)
-					refsf = sflist[N.argmin(self.sfccdpos[sflist][:,0])]
-					# Loop over all subfields in this row
-					for rowsf in sflist:
-						#if (rowsf == refsf): continue
-						# Calculate the angle between these subfields (in *pixels*! 
-						# multiply with pixel scale to get real angles)
-						a = self.sfccdpos[rowsf, 0] - self.sfccdpos[refsf, 0]
-						# Compare subap <refsa> with <rowsa> here and subfield <refsf>
-						# with <rowsf>. Follow the notation in Scharmer & van Werkhoven:
-						# differential image shifts:
-						dx_s0 = shifts[:, refsa, refsf, :] - shifts[:, rowsa, refsf, :]
-						dx_sa = shifts[:, refsa, rowsf, :] - shifts[:, rowsa, rowsf, :]
-						# Unscaled longitudinal and transversal covariance of these shifts
-						C_lsa = (N.cov(dx_s0[:,0], dx_sa[:,0]))[0,1]
-						C_tsa = (N.cov(dx_s0[:,1], dx_sa[:,1]))[0,1]
-						# Add all values to the matrix
-						sdimm.append([0, s, a, C_lsa, C_tsa, refsa, rowsa, refsf, rowsf])
+			for rowsa1 in salist:
+				othersa = salist[self.sapos[salist,0] >= self.sapos[rowsa1,0]]
+				for rowsa2 in othersa:
+					#if (rowsa == refsa): continue
+					log.prNot(log.NOTICE, "ROW: Comparing subap %d with subap %d." % \
+						(rowsa1, rowsa2))
+					# Calculate the distance between these two subaps
+					s = self.sapos[rowsa2, 0] - self.sapos[rowsa1, 0]
+					# s = self.sapos[rowsa, 0] - self.sapos[refsa, 0]
+					# Loop over all subfield rows
+					for sfrowpos in sfrows:
+						# Get a list of all subfields at this row (i.e. same y coordinate)
+						sflist = N.argwhere(self.sfccdpos[:,1] == sfrowpos).flatten()
+						# Take a reference subaperture in this row (the one on the left)
+						#rowsf = refsf = sflist[N.argmin(self.sfccdpos[sflist][:,0])]
+						# Loop over all subfields in this row
+						for rowsf1 in sflist:
+							othersf = sflist[self.sfccdpos[sflist,0] >= \
+							 	self.sfccdpos[rowsf1,0]]
+							# Loop over all other subfields
+							for rowsf2 in othersf:
+								a = self.sfccdpos[rowsf2, 0] - self.sfccdpos[rowsf1, 0]
+								dx_s0 = shifts[:, rowsa1, rowsf1, :] - \
+									shifts[:, rowsa2, rowsf1, :]
+								dx_sa = shifts[:, rowsa1, rowsf2, :] - \
+									shifts[:, rowsa2, rowsf2, :]
+								C_lsa = (N.cov(dx_s0[:,0], dx_sa[:,0]))[0,1]
+								C_tsa = (N.cov(dx_s0[:,1], dx_sa[:,1]))[0,1]
+								sdimm.append([0, s, a, C_lsa, C_tsa, \
+									rowsa1, rowsa2, rowsf1, rowsf2])
+					# 	#if (rowsf == refsf): continue
+					# 	# Calculate the angle between these subfields (in *pixels*! 
+					# 	# multiply with pixel scale to get real angles)
+					# 	a = self.sfccdpos[rowsf, 0] - self.sfccdpos[refsf, 0]
+					# 	# Compare subap <refsa> with <rowsa> here and subfield <refsf>
+					# 	# with <rowsf>. Follow the notation in Scharmer & van Werkhoven:
+					# 	# differential image shifts:
+					# 	dx_s0 = shifts[:, refsa, refsf, :] - shifts[:, rowsa, refsf, :]
+					# 	dx_sa = shifts[:, refsa, rowsf, :] - shifts[:, rowsa, rowsf, :]
+					# 	# Unscaled longitudinal and transversal covariance of these shifts
+					# 	C_lsa = (N.cov(dx_s0[:,0], dx_sa[:,0]))[0,1]
+					# 	C_tsa = (N.cov(dx_s0[:,1], dx_sa[:,1]))[0,1]
+					# 	# Add all values to the matrix
+					# 	sdimm.append([0, s, a, C_lsa, C_tsa, refsa, rowsa, refsf, rowsf])
 		
 		### Loop over all *columns*
 		### =======================
-		sacols = N.unique(self.sapos[:,0])
-		sfcols = N.unique(self.sfccdpos[:,0])		
-		for sacolpos in sacols:
-			salist = N.argwhere(self.sapos[:,0] == sacolpos).flatten()
-			refsa = salist[N.argmin(self.sapos[salist][:,1])]
-			for colsa in salist:
-				#if (colsa == refsa): continue
-				log.prNot(log.NOTICE, "COLUMN: Comparing subap %d with subap %d." % \
-					(refsa, colsa))
-				s = self.sapos[colsa, 1] - self.sapos[refsa, 1]
-				for sfcolpos in sfcols:
-					sflist = N.argwhere(self.sfccdpos[:,0] == sfcolpos).flatten()
-					refsf = sflist[N.argmin(self.sfccdpos[sflist][:,1])]
-					for colsf in sflist:
-						#if (colsf == refsf): continue
-						a = self.sfccdpos[colsf, 1] - self.sfccdpos[refsf, 1]
-						dx_s0 = shifts[:, refsa, refsf, :] - shifts[:, colsa, refsf, :]
-						dx_sa = shifts[:, refsa, colsf, :] - shifts[:, colsa, colsf, :]
-						C_lsa = (N.cov(dx_s0[:,1], dx_sa[:,1]))[0,1]
-						C_tsa = (N.cov(dx_s0[:,0], dx_sa[:,0]))[0,1]
-						sdimm.append([1, s, a, C_lsa, C_tsa, refsa, colsa, refsf, colsf])
+		# sacols = N.unique(self.sapos[:,0])
+		# sfcols = N.unique(self.sfccdpos[:,0])
+		# for sacolpos in sacols:
+		# 	salist = N.argwhere(self.sapos[:,0] == sacolpos).flatten()
+		# 	refsa = salist[N.argmin(self.sapos[salist][:,1])]
+		# 	for colsa in salist:
+		# 		#if (colsa == refsa): continue
+		# 		log.prNot(log.NOTICE, "COLUMN: Comparing subap %d with subap %d." % \
+		# 			(refsa, colsa))
+		# 		s = self.sapos[colsa, 1] - self.sapos[refsa, 1]
+		# 		for sfcolpos in sfcols:
+		# 			sflist = N.argwhere(self.sfccdpos[:,0] == sfcolpos).flatten()
+		# 			refsf = sflist[N.argmin(self.sfccdpos[sflist][:,1])]
+		# 			for colsf in sflist:
+		# 				#if (colsf == refsf): continue
+		# 				a = self.sfccdpos[colsf, 1] - self.sfccdpos[refsf, 1]
+		# 				dx_s0 = shifts[:, refsa, refsf, :] - shifts[:, colsa, refsf, :]
+		# 				dx_sa = shifts[:, refsa, colsf, :] - shifts[:, colsa, colsf, :]
+		# 				C_lsa = (N.cov(dx_s0[:,1], dx_sa[:,1]))[0,1]
+		# 				C_tsa = (N.cov(dx_s0[:,0], dx_sa[:,0]))[0,1]
+		# 				sdimm.append([1, s, a, C_lsa, C_tsa, refsa, colsa, refsf, colsf])
 		
 		# Convert to numpy array and store to disk
 		sdimm = N.array(sdimm)
@@ -2019,7 +2045,7 @@ class SdimmTool(Tool):
 		una = N.unique(sdrow[:,2])
 		
 		# Fill matrix SDimmRowCorrelation
-		sdrc = N.zeros(((3,) + uns.shape + una.shape))
+		sdrc = N.zeros(((2,) + uns.shape + una.shape))
 		for ns in xrange(len(uns)):
 			s = uns[ns]
 			for na in xrange(len(una)):
@@ -2030,7 +2056,7 @@ class SdimmTool(Tool):
 				else: 
 					sdrc[0, ns, na] = N.mean(sdrow[idx, 3])
 					sdrc[1, ns, na] = N.mean(sdrow[idx, 4])
-					sdrc[2, ns, na] = len(idx)
+					#sdrc[2, ns, na] = len(idx)
 		# Save correlation values to disk
 		self.ofiles['sdimmrow'] = lf.saveData(self.mkuri('sdimmrow'), \
 		 	sdrc, asnpy=True, asfits=True)
@@ -2047,7 +2073,7 @@ class SdimmTool(Tool):
 		una = N.unique(sdcol[:,2])
 		
 		# Fill SDimmColumnCorrelation
-		sdcc = N.zeros(((3,) + uns.shape + una.shape))
+		sdcc = N.zeros(((2,) + uns.shape + una.shape))
 		for ns in xrange(len(uns)):
 			s = uns[ns]
 			for na in xrange(len(una)):
@@ -2058,7 +2084,7 @@ class SdimmTool(Tool):
 				else: 
 					sdcc[0, ns, na] = N.mean(sdcol[idx, 3])
 					sdcc[1, ns, na] = N.mean(sdcol[idx, 4])
-					sdcc[2, ns, na] = len(idx)
+					#sdcc[2, ns, na] = len(idx)
 		# Save to disk
 		self.ofiles['sdimmcol'] = lf.saveData(self.mkuri('sdimmcol'), \
 		 	sdcc, asnpy=True, asfits=True)
