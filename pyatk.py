@@ -246,9 +246,14 @@ def main(argv=None):
 	(tool, params, files) = parse_options()
 	# Sanity check on parameters
 	check_params(tool, params)
-	log.prNot(log.NOTICE, "Command: '%s'" % (str(sys.argv)))
+	cmd = sys.argv[0]
+	for arg in sys.argv[1:]:
+		if arg in files: break
+		cmd += ' ' + arg
+	log.prNot(log.NOTICE, "Command: '%s'" % (cmd))
 	log.prNot(log.NOTICE, "Parameters: '%s'" % (str(params)))
 	log.prNot(log.NOTICE, "Files prefix: '%s'" % (os.path.commonprefix(files)))
+	log.prNot(log.NOTICE, "Files: '%s'" % (str(files)))
 	# Perform action requested
 	log.prNot(log.NOTICE, "Tool: %s." % tool)
 	if (tool == 'convert'): ConvertTool(files,params)
@@ -408,6 +413,7 @@ def get_defaults(tool):
 		default['safile'] = False
 		default['sffile'] = False
 		default['nref'] = 4
+		default['mask'] = 'none'
 	elif (tool == 'tomo'):
 		default['ccdres'] = 0.45
 		default['aptr'] = 0.49
@@ -548,8 +554,8 @@ def check_params(tool, params):
 			log.prNot(log.ERR, "Tool 'shiftoverlay' requires sffile.")
 		if (not params['safile']) or (not os.path.exists(params['safile'])):
 			log.prNot(log.ERR, "Tool 'shiftoverlay' requires safile.")
-		if (not params['shifts']) or (not os.path.exists(params['shifts'])):
-			log.prNot(log.ERR, "Tool 'shiftoverlay' requires shifts file.")
+		#if (not params['shifts']) or (not os.path.exists(params['shifts'])):
+		#	log.prNot(log.ERR, "Tool 'shiftoverlay' requires shifts file.")
 		if (params['shape'] not in ['box', 'dot']):
 			log.prNot(log.ERR, "'shape' should be in ['box', 'dot'].")
 	elif (tool == 'shifts'):
@@ -943,16 +949,14 @@ class SubfieldConfTool(Tool):
 	def run(self):
 		# Generate subfield positions
 		effsize = self.sasize - 2*self.border
-		pitch = self.sfsize * (1-self.overlap)
-		nsf = N.floor((effsize-self.sfsize+pitch) / pitch)
-		effpitch = (effsize-self.sfsize)/(nsf-1)
-		effpitch[(nsf == 1)] = 0
+		pitch = N.round(self.sfsize * (1-self.overlap)).astype(N.int)
+		nsf = N.floor((effsize - self.sfsize) / pitch) + 1
 		
-		log.prNot(log.INFO, "Effective size: (%g,%g), effpitch: (%g,%g)" % \
-		 	(tuple(effsize) + tuple(effpitch)))
+		log.prNot(log.INFO, "Eff sasize: (%g,%g), pitch: (%g,%g), eff overlap: (%g,%g)" % \
+		 	(tuple(effsize) + tuple(pitch) + tuple(1-pitch*1.0/self.sfsize)))
 		
 		sfpos = self.border + \
-			N.indices(nsf, dtype=N.float).reshape(2,-1).T * effpitch
+			N.indices(nsf, dtype=N.int).reshape(2,-1).T * pitch
 		sfpos = N.floor(sfpos).astype(N.int)
 		totnsf = N.product(nsf).astype(N.int)
 		
@@ -961,8 +965,8 @@ class SubfieldConfTool(Tool):
 		libsh.saveSaSfConf(self.mkuri(self.file), totnsf, [-1,-1], self.sfsize, \
 		 	sfpos)
 		if (self.plot):
-			import astooki.libplot
-			libplot.showSaSfLayout(self.mkuri(self.file+'-plot.eps'), sfpos, \
+			import astooki.libplot as lp
+			lp.showSaSfLayout(self.mkuri(self.file+'-plot.eps'), sfpos, \
 			 	self.sfsize, plrange=[[0, self.sasize[0]], [0, self.sasize[1]]])
 		# Done
 		
@@ -1030,7 +1034,7 @@ class SubaptUpdateTool(Tool):
 		
 		# Offset the new positions
 		maxsh = N.ceil(N.max(abs(off), axis=0))
-		newpos = (pos + off + maxsh).astype(N.int)
+		newpos = (pos - off + maxsh).astype(N.int)
 		# Crop the subaperture size by twice the maximum offset
 		newsize = (size - maxsh*2).astype(N.int)
 		# Store
@@ -1237,11 +1241,11 @@ class ShiftTool(Tool):
 			allfiles.append(base)
 			dfimg = self.darkflat(img)
 			
-			togo = (len(self.files) - len(allfiles)) * \
-				(time.time() - self.start) / len(allfiles)
+			spf = (time.time() - self.start) / len(allfiles)
+			togo = (len(self.files) - len(allfiles)) * spf
 			eta = time.localtime(time.time() + round(togo))
-			log.prNot(log.NOTICE, "Processing %s, ETA @ %s, (%g sec)" % \
-				(base, time.strftime("%H:%M:%S", eta), togo))
+			log.prNot(log.NOTICE, "Processing frame %d/%d, ETA @ %s, (%g sec, %g spf)" % \
+				(len(allfiles), len(self.files), time.strftime("%H:%M:%S", eta), togo, spf))
 			refaps = []
 			imgshifts = ls.calcShifts(dfimg, self.saccdpos, self.saccdsize, \
 			 	self.sfccdpos, self.sfccdsize, method=ls.COMPARE_ABSDIFFSQ, \
@@ -1515,7 +1519,12 @@ class ShiftOverlayTool(Tool):
 		elif self.shape == 'dot':
 			plsf = xrange(self.nsf)
 		
-		allshifts = lf.loadData(self.shifts, asnpy=True)
+		if os.path.exists(self.shifts):
+			haveShifts = True
+			allshifts = lf.loadData(self.shifts, asnpy=True)
+		else:
+			haveShifts = False
+		
 		log.prNot(log.NOTICE, "Using subapertures %s" % (str(self.subaps)))
 		
 		# Loop over files to process
@@ -1529,15 +1538,17 @@ class ShiftOverlayTool(Tool):
 				(fidx+1, len(self.files), base))
 			
 			# Filter out non-finite values
-			log.prNot(log.NOTICE, "Pre-processing shifts.")
-			shifts = allshifts[fidx+self.skip,:,:,:,:]
-			notfin = N.argwhere(N.isfinite(shifts) == False)
-			for nfidx in notfin: shifts[tuple(nfidx)] = 0.0
-			log.prNot(log.NOTICE, "Setting %d non-finite values to 0." % \
-				(len(notfin)))
+			if haveShifts:
+				log.prNot(log.NOTICE, "Pre-processing shifts.")
+				shifts = allshifts[fidx+self.skip,:,:,:,:]
+				notfin = N.argwhere(N.isfinite(shifts) == False)
+				for nfidx in notfin: shifts[tuple(nfidx)] = 0.0
+				log.prNot(log.NOTICE, "Setting %d non-finite values to 0." % \
+					(len(notfin)))
 			
 			# Average over different references
-			shifts = N.mean(shifts, axis=0)
+			if haveShifts:
+				shifts = N.mean(shifts, axis=0)
 			# Subtract average over different subapertures
 			#for sa in xrange(shifts.shape[0]):
 			#	avg = N.mean(shifts[sa,:,:], axis=0)
@@ -1575,7 +1586,8 @@ class ShiftOverlayTool(Tool):
 				dmin = data.min()
 				for sf in plsf:
 					if self.shape == 'box':
-						shpos = (self.sfccdpos[sf] - shifts[sa, sf]) * nsc
+						if haveShifts: shpos = (self.sfccdpos[sf] - shifts[sa, sf]) * nsc
+						else: shpos = self.sfccdpos[sf] * nsc
 						data[shpos[1]:shpos[1]+(sz[1]*nsc[1]), \
 							shpos[0]] = dmax
 						data[shpos[1]:shpos[1]+(sz[1]*nsc[1]), \
@@ -1586,7 +1598,8 @@ class ShiftOverlayTool(Tool):
 							shpos[0]:shpos[0]+(sz[0]*nsc[1])] = dmax
 					elif self.shape == 'dot':
 					# This gives a 9 pixel block:
-						vec = (self.sfccdposc[sf] - shifts[sa, sf]) * nsc
+						if haveShifts: vec = (self.sfccdposc[sf] - shifts[sa, sf]) * nsc
+						else: vec = self.sfccdposc[sf] * nsc
 						data[vec[1]-1:vec[1]+2, vec[0]-1:vec[0]+2] = dmax
 						data[vec[1], vec[0]] = dmin
 				
