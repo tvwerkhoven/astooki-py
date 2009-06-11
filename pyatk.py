@@ -156,71 +156,6 @@ help_message['sdimm'] = """SDIMM options
      --sffile=FILE           subfield positions on the CCD (pixels)
      --skipsa=SA1,SA2,...    list of subapertures to skip in analysis"""
 
-help_message['examples'] = """Examples
- To calculate stats for a series of files in one directory, using dark- and
- flatfielding and cropping using a pre-calculated mask:
-   astooki.py stats -vvv --ff *ff*1001 --fm=500 --df ../2009.04.22/*dd*1995 \\
-   --dm=500 --mf=proc/2009.04.22-mask-crop3.csv --file=proc/2009.04.27-stats \\  
-   wfwfs_test_im27Apr2009.0000???
-
- To convert one file to fits format while dark/flat-fielding and using a 
- cropmask without normalizing:
-   astooki.py convert -vvv --ff *ff*1001 --fm=500 --df \\
-   ../2009.04.22/*dd*1995 --dm=500 --mf=proc/2009.04.22-mask-crop3.csv \\
-   --nonorm wfwfs_test_im27Apr2009.0000042
-
- To crop a portion of the image and store it as png:
-   astooki.py convert -vvv --ff *ff*1001 --fm=500 --df \\
-   ../2009.04.22/*dd*1995 --dm=500 --crop 652,1108,168,146 --mf \\
-   proc/2009.04.22-mask.csv --intclip 0.9,1.1 --outformat png \\
-   wfwfs_test_im27Apr2009.0000001
-
- To measure image shifts over the whole subaperture, use a subfield file with 
- only one subfield with the size of the complete subimage except for a guard 
- range, combined with a regular subimage config file:
-   astooki.py shifts -vvv --ff *ff*1001 --fm=500 --df \\
-   ../2009.04.22/*dd*1995 --dm=500 --safile proc/2009.04.22-mask.csv \\
-   --sffile proc/2009.04.22-subfield-big.csv --range 7 --nref 5 \\
-   --file wfwfs_test_im27Apr2009-shifts wfwfs_test_im27Apr2009.0000{1,2}??
-
- Updating subaperture positions:
-   astooki.py saupd -vv --plot --mf 2009.04.22-mask.csv --offset \\
-   offset-csv.csv
-
- Making a subfield mask with 16x16 pix subfields and 0.5 overlap on each side:
-   astooki.py sfmask -vv --plot --file 'subfieldmask.csv' --sfsize=16,16 \\
-   --sasize=165,139 --overlap=0.5,0.5 --border=6,6
-
- Subfield shift measurement using the above corrected subimage positions and
- subfields:
-   astooki.py shifts -vv --ff *ff*1001 --fm=500 --df ../2009.04.22/*dd*1995 \\
-   --dm=500 --safile proc/2009.04.22-mask-updated.csv --sffile \\
-   proc/2009.04.27-subfieldmask.csv --range 6 --nref 2 \\
-   wfwfs_test_im27Apr2009.000020?
-
- Convert numpy data to fits format:
-   astooki.py convert -vvv --informat npy --outformat fits \\
-   2009.04.27_wfwfs_test_im27Apr2009_200-209-shifts.npy
- 
- Overlay shift vectors on raw data:
- N.B. Make sure the order of files correspond with the order of shifts, i.e. 
- entry N in the shifts file must correspond with file N in the file list!
-   astooki.py shiftoverlay -vv --shape box --scale 1.471 --outformat png \\
-   --intclip=0.85,1.15 --subap 61  --safile \\
-   ../2009.04.28-run01/proc/2009.04.28-mask-updated.csv --sffile \\
-   ../2009.04.28-run01/proc/2009.04.28-subfield-24x24.csv --shifts \\
-   proc/subshift2/2009.04.28-run01_wfwfs_test_im28Apr2009_3-1002-shifts.npy \\
-   --ff ../2009.04.28-flats/wfwfs_test_ff28Apr2009.0000002 --fm 500 --df \\
-   ../2009.04.28-darks/wfwfs_test_dd28Apr2009.0000002 --dm 500 \\
-   wfwfs_test_im28Apr2009.0000*
-
- SDIMM+ analysis on shift data:
-   pyatk.py sdimm -vv -d sdimm-16x16-dc --shifts 
-   subshift-16x16/2009.04.28-run05_wfwfs_test_im28Apr2009_1-999-shifts.npy 
-   --safile samask/2009.04.28-run05-samask-ll-centroid.csv --sffile 
-   sfmask/2009.04.28-run05-sfmask-16x16.csv"""
-
-
 ### Supported formats
 _FORMAT_ANA = 'ana'
 _FORMAT_FITS = 'fits'
@@ -241,7 +176,7 @@ _itype = N.int32
 def main(argv=None):
 	#print "Sleeping, attach debuggers now."
 	#time.sleep(10)
-	beg = time.time()
+	__begin = time.time()
 	# Parse command-line options from sys.argv
 	(tool, params, files) = parse_options()
 	# Sanity check on parameters
@@ -268,7 +203,7 @@ def main(argv=None):
 	elif (tool == 'tomo'): TomoTool(files, params)
 	elif (tool == 'sdimm'): SdimmTool(files, params)
 	# done
-	dur = time.time() - beg
+	dur = time.time() - __begin
 	log.prNot(log.NOTICE, "Completed in %g seconds." % (dur))
 	return 0
 
@@ -593,7 +528,14 @@ def check_params(tool, params):
 ### ==========================================================================
 
 class Tool(object):
-	"""Generic Tool class with common functions."""
+	"""
+	Generic Tool class with common functions.
+	
+	This is the base class for all other 'tools' provided by astooki. This class 
+	provides some functions that are used by most/all other tools that subclass 
+	this class. Functionality includes loading and saving image data, 
+	dark/flatfidling and cropping & masking data.
+	"""
 	
 	def __init__(self, files, params):
 		# Init starttime
@@ -658,7 +600,7 @@ class Tool(object):
 		if (self.crop is not False):
 			data = data[self.crop[1]:self.crop[1] + self.crop[3], \
 				self.crop[0]:self.crop[0] + self.crop[2]]
-
+		
 		return data.astype(_ftype)
 	
 	
@@ -681,9 +623,9 @@ class Tool(object):
 		# Init dark-flat fields
 		if (self.flatfield or self.darkfield):
 			self.__initdarkflat()
-			log.prNot(log.INFO, "Dark-flatfielding data. Dark avg: %.4g, gain avg: %.4g" % (N.mean(self.darkdata), N.mean(self.gaindata)))		
-			# Now process the frame
-			return (data-self.darkdata) * self.gaindata
+			tmp = (data-self.darkdata) * self.gaindata
+			log.prNot(log.INFO, "Dark-flatfielding data, range: %.4g -- %4g, avg: %.4g" % (N.min(tmp), N.max(tmp), N.mean(tmp))		
+			return tmp
 		return data
 	
 	
@@ -832,7 +774,6 @@ class Tool(object):
 	
 
 
-
 class SubaptConfTool(Tool):
 	"""
 	Make a subaperture mask, given a number of geometric input parameters.
@@ -970,83 +911,6 @@ class SubfieldConfTool(Tool):
 			 	self.sfsize, plrange=[[0, self.sasize[0]], [0, self.sasize[1]]])
 		# Done
 		
-	
-
-
-class SubaptUpdateTool(Tool):
-	"""
-	Update subaperture mask with an offset.
-	
-	Since we want to compare different subfields within each subimage, we need 
-	to know the reference direction of each subimage. Because of static 
-	aberrations (telescope defocus, instrument issues) we cannot assume that 
-	pixel (x,y) in subimage N corresponds to the same field of view as the same 
-	pixel in subimage M. Or the other way around: given a granule G on the sun, 
-	we want to know at what pixel that granule is located in each of the 
-	subimages.
-	
-	To get these 'static offsets', we take a large field of view in one 
-	reference subimage (almost the complete subimage) and cross-correlate that 
-	with all subimages. This will give N shift vectors for each frame, N being 
-	the number of subapertures. To get better results, it is possible to use 
-	multiple subapertures as reference, this should give the same data and gives 
-	an indication of the noise or reliability of the shift measurement. The 
-	image shifts measured for different reference subapertures will be stored 
-	alongside eachother.
-	
-	Because there is atmospheric seeing which causes tip-tilt of the images, the 
-	image shifts will vary strongly from frame to frame. The seeing is 
-	statistical, however, which means that the average shift over all frames 
-	should be zero. To get the static offsets and identify the relative field of 
-	view of all subimages, we average the image shifts over all frames. This 
-	gives a offset vector for each subimage which indicates where the subimage 
-	is pointing at relative to the other subimages.
-	
-	If we correct the subimage mask calculated earlier with this list of 
-	vectors, each subimage mask will be pointing at the same location on the 
-	sun. Once we have established this, we can subdivide the subimages in 
-	different subfields knowing exactly where each subfield points and thus 
-	providing a reliable method to base subsequent analysis on.
-	
-	@param maskfile The subaperture mask to be updated
-	@param offsets A list of offset vectors
-	"""
-	def __init__(self, files, params):
-		super(SubaptUpdateTool, self).__init__(files, params)
-		# Output file
-		tmp = os.path.splitext(self.maskfile)
-		self.file = tmp[0]+'-updated'+tmp[1]
-		self.offsets = params['offsets']
-		
-		self.run()
-	
-	
-	def run(self):
-		# Load mask file
-		(nsa, pos, size) = \
-		 	libsh.loadSaSfConf(self.maskfile)
-		# load offsets
-		off = lf.loadData(self.offsets, ascsv=True)
-		
-		# Compare
-		if (off.shape[0] != nsa):
-			log.prNot(log.ERR, "SubaptUpdateTool(): offsets not the same size as subaperture positions.")
-		
-		# Offset the new positions
-		maxsh = N.ceil(N.max(abs(off), axis=0))
-		newpos = (pos - off + maxsh).astype(N.int)
-		# Crop the subaperture size by twice the maximum offset
-		newsize = (size - maxsh*2).astype(N.int)
-		# Store
-		libsh.saveSaSfConf(self.mkuri(self.file), nsa, [-1,-1], newsize, newpos)
-		if (self.plot):
-			import astooki.libplot as libplot
-			plfile = self.mkuri(self.file + '-plot.eps')
-			# TODO: fix this range
-			plran = [[0, N.ceil(1600./512)*512]]*2
-			libplot.showSaSfLayout(plfile, newpos, newsize, \
-				plrange=plran)
-		# Done
 	
 
 
@@ -1304,20 +1168,17 @@ class ShiftTool(Tool):
 			# Now make sure the average *per frame* is zero
 			s_avgfr = N.mean(s_ref, axis=1)
 			s_norm = s_ref - s_avgfr.reshape(-1,1,2)
-		
+			
 			# Calculate variance per subaperture
 			savar = N.var(s_norm, axis=0)
-			log.prNot(log.NOTICE, "Average shift variance: (%g,%g), max: (%g,%g)" % \
+			log.prNot(log.NOTICE, "Average shift variance: (%g,%g), max: (%g,%g)" %\
 				(tuple(N.mean(savar,0)) +  tuple(N.max(savar,0))))
-			# Deprecated: already stored in calcShifts() itself.
-			#self.ofiles['shift-var'] = lf.saveData(self.mkuri('shift-variance'), \
-			#	savar, asnpy=True, ascsv=True)
-		
-			# Now average over all frames to get the offset. Also calculate the error
+			
+			# Now average over all frames to get the offset + error
 			log.prNot(log.NOTICE, "Calculating static offsets.")
 			soff = N.mean(s_norm, axis=0)
 			sofferr = (N.var(s_norm, axis=0))**0.5
-		
+			
 			self.ofiles['offsets'] = lf.saveData(self.mkuri('static-offsets'), \
 				soff, asnpy=True, ascsv=True)
 			self.ofiles['offset-err'] = lf.saveData(\
@@ -1332,6 +1193,83 @@ class ShiftTool(Tool):
 				 	self.shifts[:250], self.saccdpos, self.saccdsize, self.sfccdpos, \
 				 	self.sfccdsize, plorigin=(0,0), plrange=(2048, 2048), mag=7.0, \
 				 	allsh=False, title='Static offsets, mag=7', legend=True)
+	
+
+
+class SubaptUpdateTool(Tool):
+	"""
+	Update subaperture mask with an offset.
+	
+	Since we want to compare different subfields within each subimage, we need 
+	to know the reference direction of each subimage. Because of static 
+	aberrations (telescope defocus, instrument issues) we cannot assume that 
+	pixel (x,y) in subimage N corresponds to the same field of view as the same 
+	pixel in subimage M. Or the other way around: given a granule G on the sun, 
+	we want to know at what pixel that granule is located in each of the 
+	subimages.
+	
+	To get these 'static offsets', we take a large field of view in one 
+	reference subimage (almost the complete subimage) and cross-correlate that 
+	with all subimages. This will give N shift vectors for each frame, N being 
+	the number of subapertures. To get better results, it is possible to use 
+	multiple subapertures as reference, this should give the same data and gives 
+	an indication of the noise or reliability of the shift measurement. The 
+	image shifts measured for different reference subapertures will be stored 
+	alongside eachother.
+	
+	Because there is atmospheric seeing which causes tip-tilt of the images, the 
+	image shifts will vary strongly from frame to frame. The seeing is 
+	statistical, however, which means that the average shift over all frames 
+	should be zero. To get the static offsets and identify the relative field of 
+	view of all subimages, we average the image shifts over all frames. This 
+	gives a offset vector for each subimage which indicates where the subimage 
+	is pointing at relative to the other subimages.
+	
+	If we correct the subimage mask calculated earlier with this list of 
+	vectors, each subimage mask will be pointing at the same location on the 
+	sun. Once we have established this, we can subdivide the subimages in 
+	different subfields knowing exactly where each subfield points and thus 
+	providing a reliable method to base subsequent analysis on.
+	
+	@param maskfile The subaperture mask to be updated
+	@param offsets A list of offset vectors
+	"""
+	def __init__(self, files, params):
+		super(SubaptUpdateTool, self).__init__(files, params)
+		# Output file
+		tmp = os.path.splitext(self.maskfile)
+		self.file = tmp[0]+'-updated'+tmp[1]
+		self.offsets = params['offsets']
+		
+		self.run()
+	
+	
+	def run(self):
+		# Load mask file
+		(nsa, pos, size) = \
+		 	libsh.loadSaSfConf(self.maskfile)
+		# load offsets
+		off = lf.loadData(self.offsets, ascsv=True)
+		
+		# Compare
+		if (off.shape[0] != nsa):
+			log.prNot(log.ERR, "SubaptUpdateTool(): offsets not the same size as subaperture positions.")
+			
+		# Offset the new positions
+		maxsh = N.ceil(N.max(abs(off), axis=0))
+		newpos = (pos - off + maxsh).astype(N.int)
+		# Crop the subaperture size by twice the maximum offset
+		newsize = (size - maxsh*2).astype(N.int)
+		# Store
+		libsh.saveSaSfConf(self.mkuri(self.file), nsa, [-1,-1], newsize, newpos)
+		if (self.plot):
+			import astooki.libplot as libplot
+			plfile = self.mkuri(self.file + '-plot.eps')
+			# TODO: fix this range
+			plran = [[0, N.ceil(1600./512)*512]]*2
+			libplot.showSaSfLayout(plfile, newpos, newsize, \
+				plrange=plran)
+		# Done
 	
 
 
@@ -1412,7 +1350,6 @@ class StatsTool(Tool):
 		 	N.concatenate((allfiles, allstats), axis=1), ascsv=True, csvhdr=hdr, \
 		 	csvfmt='%s')
 	
-
 
 
 class ConvertTool(Tool):
@@ -1549,15 +1486,9 @@ class ShiftOverlayTool(Tool):
 			# Average over different references
 			if haveShifts:
 				shifts = N.mean(shifts, axis=0)
-			# Subtract average over different subapertures
-			#for sa in xrange(shifts.shape[0]):
-			#	avg = N.mean(shifts[sa,:,:], axis=0)
-			#	shifts[:,sf,:] -= avg.reshape(1,2)
-			#print shifts.shape
+			
 			# Loop over subaps to process
 			for sa in self.subaps:
-				# self.crop = N.array([self.saccdpos[sa, 0], self.saccdpos[sa, 1], \
-				# 	self.saccdsize[0], self.saccdsize[1]])
 				# Crop out subaperture, divide by mean
 				data = dfimg[\
 					self.saccdpos[sa, 1]: \
@@ -1567,6 +1498,7 @@ class ShiftOverlayTool(Tool):
 				data = data / data.mean()
 				
 				if (self.scale != 1.0):
+					# If scale is not unity, calculate the nearest scale that is % 8
 					import scipy.ndimage
 					sc = self.scale
 					orig = data.shape
@@ -1586,6 +1518,7 @@ class ShiftOverlayTool(Tool):
 				dmin = data.min()
 				for sf in plsf:
 					if self.shape == 'box':
+						# Visualize shift with moving subfields-sized boxes
 						if haveShifts: shpos = (self.sfccdpos[sf] - shifts[sa, sf]) * nsc
 						else: shpos = self.sfccdpos[sf] * nsc
 						data[shpos[1]:shpos[1]+(sz[1]*nsc[1]), \
@@ -1603,7 +1536,7 @@ class ShiftOverlayTool(Tool):
 						data[vec[1]-1:vec[1]+2, vec[0]-1:vec[0]+2] = dmax
 						data[vec[1], vec[0]] = dmin
 				
-				# Save again
+				# Save frame with shifts overlayed
 				savefile = f+'-subap%d-shifts.%s' % (sa, self.outformat)
 				savefile = self.mkuri(savefile)
 				log.prNot(log.NOTICE, "Saving '%s' to '%s'." % \
@@ -1617,60 +1550,9 @@ class ShiftOverlayTool(Tool):
 	
 
 
-class ProcShiftsTool(Tool):
-	"""Process shift data"""
-	def __init__(self, files, params):
-		super(ProcShiftsTool, self).__init__(files, params)
-		self.safile = params['safile']
-		self.sffile = params['sffile']
-		self.shfile = params['shifts']
-		# Load safile and sffile
-		(self.nsa, self.saccdpos, self.saccdsize) = \
-			libsh.loadSaSfConf(self.safile)
-		(self.nsf, self.sfccdpos, self.sfccdsize) = \
-			libsh.loadSaSfConf(self.sffile)
-		# Load shifts
-		self.shifts = lf.loadData(self.shfile, asnpy=True)
-		self.run()
-	
-	
-	def run(self):
-		# Process NaNs and other non-finite numbers
-		notfin = N.argwhere(N.isfinite(self.shifts) == False)
-		if (notfin.shape[0] > 0):
-			log.prNot(log.WARNING, "Found non-finite shifts! Check configuration.")
-			notfin_perc = notfin.shape[0]*100./self.shifts.size
-			log.prNot(log.WARNING, "%d (%.2g%%) non-finite entries, spread over %d frames, %d subaps, %d subfields." % \
-		 	(notfin.shape[0], notfin_perc, N.unique(notfin[:,0]).size, \
-		 	N.unique(notfin[:,2]).size, N.unique(notfin[:,3]).size))
-		
-		# If we have one subfield, treat it as static shift data:
-		if (len(self.sfccdpos) == 1):
-			log.prNot(log.NOTICE, "Calculating static offsets.")
-			(soff, sofferr) = libsh.procStatShift(self.shifts[:,:,:,0,:])
-			self.ofiles['offsets'] = lf.saveData(self.mkuri('static-offsets'), \
-				soff, asnpy=True, ascsv=True)
-			self.ofiles['offset-err'] = lf.saveData(\
-				self.mkuri('static-offset-err'), sofferr, asnpy=True, ascsv=True)
-			if (self.plot):
-				import astooki.libplot as libplot
-				libplot.plotShifts(self.mkuri('static-offset-plot'), self.shifts, \
-					self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
-					plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=False, \
-				 	title='Static offsets, mag=7', legend=True)
-		# We have subfield data here, process
-		else:
-			log.prNot(log.WARNING, "Cannot process this data, not in the proper format.")
-		
-		# Store the new meta file
-		metafile = lf.saveData(self.mkuri('astooki-meta-data'), \
-			self.ofiles, aspickle=True)
-	
-
-
 class TomoTool(Tool):
 	"""Tomographically analyze WFWFS data"""
-	def __init__(self, files, params):		
+	def __init__(self, files, params):
 		super(TomoTool, self).__init__(files, params)
 		# Load shift data
 		self.shifts = lf.loadData(params['shifts'], asnpy=True)
@@ -1837,7 +1719,6 @@ class TomoTool(Tool):
 		# Save metafile
 		metafile = lf.saveData(self.mkuri('astooki-meta-data'), \
 			self.ofiles, aspickle=True)
-
 	
 	
 	def rms(self, data, remdc=False):
@@ -1845,7 +1726,6 @@ class TomoTool(Tool):
 			return N.sqrt(N.mean((data-N.mean(data))**2.0))
 		else:
 			return N.sqrt(N.mean(data**2.0))
-
 	
 
 
@@ -1908,8 +1788,8 @@ class SdimmTool(Tool):
 	"""
 	def __init__(self, files, params):
 		super(SdimmTool, self).__init__(files, params)
-		# Load shift data
-		self.shifts = lf.loadData(params['shifts'], asnpy=True)
+		log.prNot(log.NOTICE, "Starting SDIMM+ analysis of WFWFS data stored in '%s'." % (params['shifts']))
+		
 		# Load subaperture centroid positions
 		(self.nsa, self.sapos, self.sasize) = \
 		 	libsh.loadSaSfConf(params['safile'])
@@ -1918,100 +1798,72 @@ class SdimmTool(Tool):
 			libsh.loadSaSfConf(params['sffile'])
 		# Skip these subaps in the analysis
 		self.skipsa = N.array(params['skipsa'], dtype=N.int)
-		# Store ccd resolution in radians (arcsec -> radian == /60/60 * pi/180)
-		#self.ccdres = params['ccdres'] * N.pi /60./60./180.
-		# Telescope aperture radius
-		#self.aptr = params['aptr']
-		# Calculate effective (subfield) FoV 
-		# self.fov = (N.max(self.sfccdpos + self.sfsize, axis=0) - \
-		# 	N.min(self.sfccdpos, axis=0)) * self.ccdres 
-		# self.sffov = self.sfsize * self.ccdres
-		# Calculate subfield pointing angles, set average to 0
-		# self.sfang = (self.sfccdpos + self.sfsize/2.0) * self.ccdres
-		# self.sfang -= N.mean(self.sfang, axis=0)
-		# Rotate the coordinate system
-		#self.sfang *= N.array([-1.0,-1.0])
-		
-		log.prNot(log.NOTICE, "Starting SDIMM+ analysis of WFWFS data stored in '%s'." % (params['shifts']))
+		# Load shift data
+		self.shifts = lf.loadData(params['shifts'], asnpy=True)
 		
 		self.run()
 	
 	
 	def run(self):
-		# Check for non-finite values (shouldn't be, just to make sure)
-		# notfin = N.argwhere(N.isfinite(self.shifts) == False)
-		# if (notfin.shape[0] > 0):
-		# 	log.prNot(log.WARNING, 
-		# 		"Some measurements are non-finite, check configuration!")
-		# 	# TODO: setting to zero is a poor solution to fixing NaNs
-		# 	for nfidx in notfin:
-		# 		self.shifts[tuple(nfidx)] = 0.0
+		# Calculate the SDIMM+ covariance values
+		import astooki.libsdimm as lsdimm
+		(slist, alist, covmap) = lsdimm.computeSdimmCovWeave(self.shifts, \
+		 	self.sapos, self.sfccdpos, skipsa=self.skipsa, row=True)
 		
-		# Average over number of references
-		shifts = self.shifts.mean(axis=1)
-		
-		# This will hold the sdimm correlation values
-		sdimm = []
+		# Save covariance map to disk
+		self.ofiles['sdimmrow'] = lf.saveData(self.mkuri('sdimmrow'), \
+		 	covmap, asfits=True)
+		# Save s and a values to disk
+		self.ofiles['sdimmrow-s'] = lf.saveData(self.mkuri('sdimmrow-s'), \
+			slist, asfits=True, ascsv=True)
+		self.ofiles['sdimmrow-a'] = lf.saveData(self.mkuri('sdimmrow-a'), \
+			alist, asfits=True, ascsv=True)
 		
 		### Loop over all *rows*
 		### ====================
 		# Get unique SA row positions
-		sarows = N.unique(self.sapos[:,1])
-		# Get unique SF row positions
-		sfrows = N.unique(self.sfccdpos[:,1])		
-		# Loop over all subaperture rows
-		for sarowpos in sarows:
-			# Get a list of all subapertures at this row (i.e. same y coordinate)
-			salist = N.argwhere(self.sapos[:,1] == sarowpos).flatten()
-			# Exclude bad subaps
-			salist = N.lib.arraysetops.setdiff1d(salist, self.skipsa)
-			# Take a reference subaperture in this row (the one on the left)
-			#refsa = salist[N.argmin(self.sapos[salist][:,0])]
-			# Loop over all subapertures in this row
-			for rowsa1 in salist:
-				othersa = salist[self.sapos[salist,0] >= self.sapos[rowsa1,0]]
-				for rowsa2 in othersa:
-					#if (rowsa == refsa): continue
-					log.prNot(log.NOTICE, "ROW: Comparing subap %d with subap %d." % \
-						(rowsa1, rowsa2))
-					# Calculate the distance between these two subaps
-					s = self.sapos[rowsa2, 0] - self.sapos[rowsa1, 0]
-					# s = self.sapos[rowsa, 0] - self.sapos[refsa, 0]
-					# Loop over all subfield rows
-					for sfrowpos in sfrows:
-						# Get a list of all subfields at this row (i.e. same y coordinate)
-						sflist = N.argwhere(self.sfccdpos[:,1] == sfrowpos).flatten()
-						# Take a reference subaperture in this row (the one on the left)
-						#rowsf = refsf = sflist[N.argmin(self.sfccdpos[sflist][:,0])]
-						# Loop over all subfields in this row
-						for rowsf1 in sflist:
-							othersf = sflist[self.sfccdpos[sflist,0] >= \
-							 	self.sfccdpos[rowsf1,0]]
-							# Loop over all other subfields
-							for rowsf2 in othersf:
-								a = self.sfccdpos[rowsf2, 0] - self.sfccdpos[rowsf1, 0]
-								dx_s0 = shifts[:, rowsa1, rowsf1, :] - \
-									shifts[:, rowsa2, rowsf1, :]
-								dx_sa = shifts[:, rowsa1, rowsf2, :] - \
-									shifts[:, rowsa2, rowsf2, :]
-								C_lsa = (N.cov(dx_s0[:,0], dx_sa[:,0]))[0,1]
-								C_tsa = (N.cov(dx_s0[:,1], dx_sa[:,1]))[0,1]
-								sdimm.append([0, s, a, C_lsa, C_tsa, \
-									rowsa1, rowsa2, rowsf1, rowsf2])
-					# 	#if (rowsf == refsf): continue
-					# 	# Calculate the angle between these subfields (in *pixels*! 
-					# 	# multiply with pixel scale to get real angles)
-					# 	a = self.sfccdpos[rowsf, 0] - self.sfccdpos[refsf, 0]
-					# 	# Compare subap <refsa> with <rowsa> here and subfield <refsf>
-					# 	# with <rowsf>. Follow the notation in Scharmer & van Werkhoven:
-					# 	# differential image shifts:
-					# 	dx_s0 = shifts[:, refsa, refsf, :] - shifts[:, rowsa, refsf, :]
-					# 	dx_sa = shifts[:, refsa, rowsf, :] - shifts[:, rowsa, rowsf, :]
-					# 	# Unscaled longitudinal and transversal covariance of these shifts
-					# 	C_lsa = (N.cov(dx_s0[:,0], dx_sa[:,0]))[0,1]
-					# 	C_tsa = (N.cov(dx_s0[:,1], dx_sa[:,1]))[0,1]
-					# 	# Add all values to the matrix
-					# 	sdimm.append([0, s, a, C_lsa, C_tsa, refsa, rowsa, refsf, rowsf])
+		# sarows = N.unique(self.sapos[:,1])
+		# # Get unique SF row positions
+		# sfrows = N.unique(self.sfccdpos[:,1])		
+		# # Loop over all subaperture rows
+		# for sarowpos in sarows:
+		# 	# Get a list of all subapertures at this row (i.e. same y coordinate)
+		# 	salist = N.argwhere(self.sapos[:,1] == sarowpos).flatten()
+		# 	# Exclude bad subaps
+		# 	salist = N.lib.arraysetops.setdiff1d(salist, self.skipsa)
+		# 	# Take a reference subaperture in this row (the one on the left)
+		# 	#refsa = salist[N.argmin(self.sapos[salist][:,0])]
+		# 	# Loop over all subapertures in this row
+		# 	for rowsa1 in salist:
+		# 		othersa = salist[self.sapos[salist,0] >= self.sapos[rowsa1,0]]
+		# 		for rowsa2 in othersa:
+		# 			#if (rowsa == refsa): continue
+		# 			log.prNot(log.NOTICE, "ROW: Comparing subap %d with subap %d." % \
+		# 				(rowsa1, rowsa2))
+		# 			# Calculate the distance between these two subaps
+		# 			s = self.sapos[rowsa2, 0] - self.sapos[rowsa1, 0]
+		# 			# s = self.sapos[rowsa, 0] - self.sapos[refsa, 0]
+		# 			# Loop over all subfield rows
+		# 			for sfrowpos in sfrows:
+		# 				# Get a list of all subfields at this row (i.e. same y coordinate)
+		# 				sflist = N.argwhere(self.sfccdpos[:,1] == sfrowpos).flatten()
+		# 				# Take a reference subaperture in this row (the one on the left)
+		# 				#rowsf = refsf = sflist[N.argmin(self.sfccdpos[sflist][:,0])]
+		# 				# Loop over all subfields in this row
+		# 				for rowsf1 in sflist:
+		# 					othersf = sflist[self.sfccdpos[sflist,0] >= \
+		# 					 	self.sfccdpos[rowsf1,0]]
+		# 					# Loop over all other subfields
+		# 					for rowsf2 in othersf:
+		# 						a = self.sfccdpos[rowsf2, 0] - self.sfccdpos[rowsf1, 0]
+		# 						dx_s0 = shifts[:, rowsa1, rowsf1, :] - \
+		# 							shifts[:, rowsa2, rowsf1, :]
+		# 						dx_sa = shifts[:, rowsa1, rowsf2, :] - \
+		# 							shifts[:, rowsa2, rowsf2, :]
+		# 						C_lsa = 0#(N.cov(dx_s0[:,0], dx_sa[:,0]))[0,1]
+		# 						C_tsa = 0#(N.cov(dx_s0[:,1], dx_sa[:,1]))[0,1]
+		# 						sdimm.append([0, s, a, C_lsa, C_tsa, \
+		# 							rowsa1, rowsa2, rowsf1, rowsf2])
 		
 		### Loop over all *columns*
 		### =======================
@@ -2038,75 +1890,77 @@ class SdimmTool(Tool):
 		# 				sdimm.append([1, s, a, C_lsa, C_tsa, refsa, colsa, refsf, colsf])
 		
 		# Convert to numpy array and store to disk
-		sdimm = N.array(sdimm)
-		self.ofiles['sdimmraw'] = lf.saveData(self.mkuri('sdimmraw'), \
-		 	sdimm, asnpy=True, asfits=True)
-		
+		#sdimm = N.array(sdimm)
+		#self.ofiles['sdimmraw'] = lf.saveData(self.mkuri('sdimmraw'), \
+		# 	sdimm, asfits=True)
+				
 		# Now filter sdimm values so that we have a two matrices of correlations,
 		# one for transversal (C_tsa) and one for longitudinal (C_lsa) 
 		# correlations
 		
-		# FIXME: Need to round off 's' values because we get numerical errors
-		sdimm[:,1] = N.round(sdimm[:,1], 7)
-		sdrow = sdimm[N.argwhere(sdimm[:,0] == 0).flatten()]
-		sdcol = sdimm[N.argwhere(sdimm[:,0] == 1).flatten()]
-		
-		### Process row-wise data here
-		### ==========================
-		# Unique s and a values:
-		uns = N.unique(sdrow[:,1])
-		una = N.unique(sdrow[:,2])
-		
-		# Fill matrix SDimmRowCorrelation
-		sdrc = N.zeros(((2,) + uns.shape + una.shape))
-		for ns in xrange(len(uns)):
-			s = uns[ns]
-			for na in xrange(len(una)):
-				a = una[na]
-				idx = N.argwhere((sdrow[:,1] == s) & (sdrow[:,2] == a))
-				if len(idx) == 0:
-					log.prNot(log.WARNING, "Warning: found 0 at (%g, %g)!" % (s, a))
-				else: 
-					sdrc[0, ns, na] = N.mean(sdrow[idx, 3])
-					sdrc[1, ns, na] = N.mean(sdrow[idx, 4])
-					#sdrc[2, ns, na] = len(idx)
-		# Save correlation values to disk
-		self.ofiles['sdimmrow'] = lf.saveData(self.mkuri('sdimmrow'), \
-		 	sdrc, asnpy=True, asfits=True)
-		# Save s and a values to disk
-		self.ofiles['sdimmrow-s'] = lf.saveData(self.mkuri('sdimmrow-s'), \
-			uns, asnpy=True, asfits=True, ascsv=True)
-		self.ofiles['sdimmrow-a'] = lf.saveData(self.mkuri('sdimmrow-a'), \
-			una, asnpy=True, asfits=True, ascsv=True)
+		# # FIXME: Need to round off 's' values because we get numerical errors
+		# sdimm[:,1] = N.round(sdimm[:,1], 7)
+		# sdrow = sdimm[N.argwhere(sdimm[:,0] == 0).flatten()]
+		# sdcol = sdimm[N.argwhere(sdimm[:,0] == 1).flatten()]
+		# 
+		# ### Process row-wise data here
+		# ### ==========================
+		# # Unique s and a values:
+		# uns = N.unique(sdrow[:,1])
+		# una = N.unique(sdrow[:,2])
+		# 
+		# # Fill matrix SDimmRowCorrelation
+		# sdrc = N.zeros(((4,) + uns.shape + una.shape))
+		# for ns in xrange(len(uns)):
+		# 	s = uns[ns]
+		# 	for na in xrange(len(una)):
+		# 		a = una[na]
+		# 		idx = N.argwhere((sdrow[:,1] == s) & (sdrow[:,2] == a))
+		# 		if len(idx) == 0:
+		# 			log.prNot(log.WARNING, "Warning: found 0 at (%g, %g)!" % (s, a))
+		# 		else: 
+		# 			sdrc[0, ns, na] = N.mean(sdrow[idx, 3])
+		# 			sdrc[1, ns, na] = N.mean(sdrow[idx, 4])
+		# 			sdrc[2, ns, na] = N.mean(sdrow[idx, 5])
+		# 			sdrc[3, ns, na] = N.mean(sdrow[idx, 6])
+		# 			#sdrc[2, ns, na] = len(idx)
+		# # Save correlation values to disk
+		# self.ofiles['sdimmrow'] = lf.saveData(self.mkuri('sdimmrow'), \
+		#  	sdrc, asnpy=True, asfits=True)
+		# # Save s and a values to disk
+		# self.ofiles['sdimmrow-s'] = lf.saveData(self.mkuri('sdimmrow-s'), \
+		# 	uns, asnpy=True, asfits=True, ascsv=True)
+		# self.ofiles['sdimmrow-a'] = lf.saveData(self.mkuri('sdimmrow-a'), \
+		# 	una, asnpy=True, asfits=True, ascsv=True)
 		
 		### Process column-wise data here
 		### =============================
 		# Unique s and a values:
-		uns = N.unique(sdcol[:,1])
-		una = N.unique(sdcol[:,2])
-		
-		# Fill SDimmColumnCorrelation
-		sdcc = N.zeros(((2,) + uns.shape + una.shape))
-		for ns in xrange(len(uns)):
-			s = uns[ns]
-			for na in xrange(len(una)):
-				a = una[na]
-				idx = N.argwhere((sdcol[:,1] == s) & (sdcol[:,2] == a))
-				if len(idx) == 0: 
-					log.prNot(log.WARNING, "Warning: found 0 at (%g, %g)!" % (s, a))
-				else: 
-					sdcc[0, ns, na] = N.mean(sdcol[idx, 3])
-					sdcc[1, ns, na] = N.mean(sdcol[idx, 4])
-					#sdcc[2, ns, na] = len(idx)
+		# uns = N.unique(sdcol[:,1])
+		# una = N.unique(sdcol[:,2])
+		# 
+		# # Fill SDimmColumnCorrelation
+		# sdcc = N.zeros(((2,) + uns.shape + una.shape))
+		# for ns in xrange(len(uns)):
+		# 	s = uns[ns]
+		# 	for na in xrange(len(una)):
+		# 		a = una[na]
+		# 		idx = N.argwhere((sdcol[:,1] == s) & (sdcol[:,2] == a))
+		# 		if len(idx) == 0: 
+		# 			log.prNot(log.WARNING, "Warning: found 0 at (%g, %g)!" % (s, a))
+		# 		else: 
+		# 			sdcc[0, ns, na] = N.mean(sdcol[idx, 3])
+		# 			sdcc[1, ns, na] = N.mean(sdcol[idx, 4])
+		# 			#sdcc[2, ns, na] = len(idx)
 		# Save to disk
-		self.ofiles['sdimmcol'] = lf.saveData(self.mkuri('sdimmcol'), \
-		 	sdcc, asnpy=True, asfits=True)
-		self.ofiles['sdimmcol-s'] = lf.saveData(self.mkuri('sdimmcol-s'), \
-			uns, asnpy=True, asfits=True, ascsv=True)
-		self.ofiles['sdimmcol-a'] = lf.saveData(self.mkuri('sdimmcol-a'), \
-			una, asnpy=True, asfits=True, ascsv=True)
-		metafile = lf.saveData(self.mkuri('sdimm-meta-data'), \
-			self.ofiles, aspickle=True)
+		# self.ofiles['sdimmcol'] = lf.saveData(self.mkuri('sdimmcol'), \
+		#  	sdcc, asnpy=True, asfits=True)
+		# self.ofiles['sdimmcol-s'] = lf.saveData(self.mkuri('sdimmcol-s'), \
+		# 	uns, asnpy=True, asfits=True, ascsv=True)
+		# self.ofiles['sdimmcol-a'] = lf.saveData(self.mkuri('sdimmcol-a'), \
+		# 	una, asnpy=True, asfits=True, ascsv=True)
+		# metafile = lf.saveData(self.mkuri('sdimm-meta-data'), \
+		# 	self.ofiles, aspickle=True)
 	
 
 
@@ -2147,6 +2001,9 @@ class SimulShift(Tool):
 				self.reshape(-1,1) * N.tan(0.5 * self.fov).reshape(1,1,2)
 		
 		log.prNot(log.NOTICE, "Starting seeings simulation using %d layers with each %dx%d cells." % (len(self.nlay), self.lcells[0], self.lcells[1]))
+		
+		# This is not done yet
+		log.prNot(log.ERROR, "Not implemented yet")
 		
 		self.run()
 	
@@ -2263,6 +2120,7 @@ class SimulShift(Tool):
 	
 	
 	
+
 
 ### ==========================================================================
 ### Helper functions
