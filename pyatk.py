@@ -1051,9 +1051,9 @@ class ShiftTool(Tool):
 		### End: store data & metadata
 		### FIXME: saving 'shifts' has problems when it is a lot of memory!
 		self.ofiles['refaps'] = lf.saveData(self.mkuri('referenace-subaps'), \
-			allrefs, asnpy=True, ascsv=True)
+			self.allrefs, asnpy=True, ascsv=True)
 		self.ofiles['files'] = lf.saveData(self.mkuri('processed-files'), \
-		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')
+		 	self.allfiles, asnpy=True, ascsv=True, csvfmt='%s')
 		self.ofiles['shifts'] = lf.saveData(self.mkuri('image-shifts'), \
 		 	self.shifts, asnpy=True, asfits=True)
 			
