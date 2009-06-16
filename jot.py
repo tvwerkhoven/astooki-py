@@ -760,3 +760,15 @@ for ns in xrange(len(uns)):
 numdisplay.display(sdct)
 
 
+### ==========================================================================
+### Round correlation mask jot code
+### ==========================================================================
+
+import numpy as N
+
+sfccdsize = N.r_[15,15]
+
+# Make a round mask
+maskc = N.indices(sfccdsize, dtype=N.int) - ((sfccdsize-1)/2.).reshape(2,1,1)
+maskb = (N.sum(maskc**2.0, axis=0) < (sfccdsize[0]/2.0)**2.0).astype(N.int)
+

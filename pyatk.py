@@ -1150,7 +1150,7 @@ class ShiftTool(Tool):
 		var = N.var(N.mean(self.shifts,1), 0)
 		self.varmap = N.r_[[var[...,0], var[...,1]]]
 		self.ofiles['variance'] = lf.saveData(self.mkuri('shifts-variance'), \
-			 sel.varmap, asnpy=True, asfits=True)
+			 self.varmap, asnpy=True, asfits=True)
 		self.ofiles['saccdpos'] = lf.saveData(self.mkuri('subap-ccdpos'), \
 		 	self.saccdpos, asnpy=True, asfits=True)
 		self.ofiles['sfccdpos'] = lf.saveData(self.mkuri('subfield-ccdpos'), \
