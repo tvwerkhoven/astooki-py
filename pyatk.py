@@ -624,7 +624,7 @@ class Tool(object):
 		if (self.flatfield or self.darkfield):
 			self.__initdarkflat()
 			tmp = (data-self.darkdata) * self.gaindata
-			log.prNot(log.INFO, "Dark-flatfielding data, range: %.4g -- %4g, avg: %.4g" % (N.min(tmp), N.max(tmp), N.mean(tmp))		
+			log.prNot(log.INFO, "Dark-flatfielding data, range: %.4g -- %4g, avg: %.4g" % (N.min(tmp), N.max(tmp), N.mean(tmp)))	
 			return tmp
 		return data
 	
@@ -1048,7 +1048,15 @@ class ShiftTool(Tool):
 		log.prNot(log.NOTICE, "Starting post-processing.")
 		self.postProcess()
 		
-		### End: store metadata
+		### End: store data & metadata
+		### FIXME: saving 'shifts' has problems when it is a lot of memory!
+		self.ofiles['refaps'] = lf.saveData(self.mkuri('referenace-subaps'), \
+			allrefs, asnpy=True, ascsv=True)
+		self.ofiles['files'] = lf.saveData(self.mkuri('processed-files'), \
+		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')
+		self.ofiles['shifts'] = lf.saveData(self.mkuri('image-shifts'), \
+		 	self.shifts, asnpy=True, asfits=True)
+			
 		metafile = lf.saveData(self.mkuri('astooki-meta-data'), \
 			self.ofiles, aspickle=True)
 	
@@ -1121,12 +1129,8 @@ class ShiftTool(Tool):
 		
 		log.prNot(log.NOTICE, "Done, saving results to disk.")
 		self.shifts = N.array(allshifts)
-		self.ofiles['shifts'] = lf.saveData(self.mkuri('image-shifts'), \
-		 	self.shifts, asnpy=True, asfits=True)
-		self.ofiles['refaps'] = lf.saveData(self.mkuri('referenace-subaps'), \
-			allrefs, asnpy=True, ascsv=True)
-		self.ofiles['files'] = lf.saveData(self.mkuri('processed-files'), \
-		 	allfiles, asnpy=True, ascsv=True, csvfmt='%s')			
+		self.allrefs = allrefs
+		self.allfiles = allfiles
 	
 	
 	def postProcess(self):
@@ -1144,9 +1148,9 @@ class ShiftTool(Tool):
 		
 		# Store variance maps to find bad subapertures/subfields
 		var = N.var(N.mean(self.shifts,1), 0)
-		varmap = N.r_[[var[...,0], var[...,1]]]
+		self.varmap = N.r_[[var[...,0], var[...,1]]]
 		self.ofiles['variance'] = lf.saveData(self.mkuri('shifts-variance'), \
-			 varmap, asnpy=True, asfits=True)
+			 sel.varmap, asnpy=True, asfits=True)
 		self.ofiles['saccdpos'] = lf.saveData(self.mkuri('subap-ccdpos'), \
 		 	self.saccdpos, asnpy=True, asfits=True)
 		self.ofiles['sfccdpos'] = lf.saveData(self.mkuri('subfield-ccdpos'), \
@@ -1155,10 +1159,10 @@ class ShiftTool(Tool):
 		 self.saccdsize, asnpy=True, asfits=True)
 		self.ofiles['sfccdsize'] = lf.saveData(self.mkuri('subfield-ccdsize'), \
 		 	self.sfccdsize, asnpy=True, asfits=True)
-		cpos = self.saccdpos.reshape(-1,1,2) + self.sfccdpos.reshape(1,-1,2) + \
-			self.sfccdsize.reshape(1,1,2)/2.0
-		self.ofiles['sasfpos-c'] = lf.saveData(self.mkuri('sasfpos-c'), cpos, \
-		 	asnpy=True, asfits=True)
+		self.cpos = self.saccdpos.reshape(-1,1,2) + \
+		  self.sfccdpos.reshape(1,-1,2) + self.sfccdsize.reshape(1,1,2)/2.0
+		self.ofiles['sasfpos-c'] = lf.saveData(self.mkuri('sasfpos-c'), \
+			self.cpos, asnpy=True, asfits=True)
 		# Add meta info
 		self.ofiles['path'] = os.path.dirname(os.path.realpath(self.mkuri('.')))
 		
