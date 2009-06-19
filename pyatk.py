@@ -1189,13 +1189,15 @@ class ShiftTool(Tool):
 				self.mkuri('static-offset-err'), sofferr, asnpy=True, ascsv=True)
 			if (self.plot):
 				import astooki.libplot as libplot
+				# TODO: fix this range -- make it a parameter?
+				plran = (0, N.ceil(self.saccdpos.max()/512)*512)
 				libplot.plotShifts(self.mkuri('static-offset-plot'), self.shifts, \
 					self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
-					plorigin=(0,0), plrange=(2048, 2048), mag=7.0, allsh=False, \
+					plorigin=(0,0), plrange=plran, mag=7.0, allsh=False, \
 				 	title='Static offsets, mag=7', legend=True)
 				libplot.plotShifts(self.mkuri('static-offset-plot-250'), \
 				 	self.shifts[:250], self.saccdpos, self.saccdsize, self.sfccdpos, \
-				 	self.sfccdsize, plorigin=(0,0), plrange=(2048, 2048), mag=7.0, \
+				 	self.sfccdsize, plorigin=(0,0), plrange=plran, mag=7.0, \
 				 	allsh=False, title='Static offsets, mag=7', legend=True)
 	
 
@@ -1269,10 +1271,9 @@ class SubaptUpdateTool(Tool):
 		if (self.plot):
 			import astooki.libplot as libplot
 			plfile = self.mkuri(self.file + '-plot.eps')
-			# TODO: fix this range
-			plran = [[0, N.ceil(1600./512)*512]]*2
-			libplot.showSaSfLayout(plfile, newpos, newsize, \
-				plrange=plran)
+			# TODO: fix this range -- make it a parameter?
+			plran = [[0, N.ceil(pos.max()/512)*512]]*2
+			libplot.showSaSfLayout(plfile, newpos, newsize, plrange=plran)
 		# Done
 	
 
