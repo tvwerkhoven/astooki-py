@@ -130,7 +130,12 @@ help_message['shifts'] = """Shifts options
      --safile=FILEPATH       subaperture locations, same format as maskfile
      --sffile=FILEPATH       subfield locations w.r.t. subaperture locations
  -n, --nref=INT              number of references to use [4]
-     --mask=MASK             mask to use when correlating (circular or none)"""
+     --comp=METHOD           img shift algorithm to use, 'sqd' for square
+                               difference, 'adsq' for abs. difference squared
+     --intpl=METHOD          subpixel interpolation method to use, '9pt' for
+                               9-point quadratic, '5pt' for 5-point quadratic.
+     --mask=MASK             mask to use when correlating (circular or
+                               none)"""
 
 help_message['procshifts'] = """Procshifts options
      --safile=FILEPATH       subaperture locations, same format as maskfile
@@ -230,7 +235,7 @@ def parse_options():
 	
 	params = get_defaults(tool)
 	
-	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "pitch=", "xoff=", "origin", "noorigin", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "mask=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log=", "skip=", "ccdres=", "aptr=", "layerheights=", "nheights=", "layercells=", "skipsa="])
+	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "pitch=", "xoff=", "origin", "noorigin", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "mask=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log=", "skip=", "ccdres=", "aptr=", "layerheights=", "nheights=", "layercells=", "skipsa=", "intpl=", "comp="])
 	# Remaining 'args' must be files
 	files = args
 	
@@ -288,6 +293,8 @@ def parse_options():
 		if option in ["--sffile"]: params['sffile'] = os.path.realpath(value)
 		if option in ["-n", "--nref"]: params['nref'] = N.int32(value)
 		if option in ["--mask"]: params['mask'] = value
+		if option in ["--comp"]: params['comp'] = value
+		if option in ["--intpl"]: params['intpl'] = value
 		# Tomo / sdimm
 		if option in ["--ccdres"]: params['ccdres'] = float(value)
 		if option in ["--aptr"]: params['aptr'] = float(value)
@@ -349,6 +356,8 @@ def get_defaults(tool):
 		default['safile'] = False
 		default['sffile'] = False
 		default['nref'] = 4
+		default['comp'] = 'sqd'
+		default['intpl'] = '9pt'
 		default['mask'] = 'none'
 	elif (tool == 'sdimm'):
 		default['nref'] = 0
@@ -502,6 +511,10 @@ def check_params(tool, params):
 			log.prNot(log.ERR, "Tool 'shifts' requires safile.")
 		if (not params['sffile']) or (not os.path.exists(params['sffile'])):
 			log.prNot(log.ERR, "Tool 'shifts' requires sffile.")
+		if (params['intpl'] not in ["9pt", "5pt"]):
+			log.prNot(log.ERR, "Tool 'shifts' intpl methods are '9pt' or '5pt'.")
+		if (params['comp'] not in ["adsq", "sqd"]):
+			log.prNot(log.ERR, "Tool 'shifts' intpl methods are 'sqd' or 'adsq'.")
 	elif (tool == 'samask'):
 		# Shape should be 'circular' or 'square'
 		if (params['shape'] not in ['square', 'circular']):
@@ -1035,6 +1048,16 @@ class ShiftTool(Tool):
 		if (len(self.files) < 1):
 			log.prNot(log.ERR, "ShiftTool(): Cannot continue without files!")
 		
+		# Parse image comparison and interpolation methods
+		import astooki.clibshifts as ls
+		if params['comp'] == 'adsq': self.comp = ls.COMPARE_ABSDIFFSQ
+		elif params['comp'] == 'sqd': self.comp = ls.COMPARE_SQDIFF
+		else: log.prNot(log.ERR, "ShiftTool(): 'comp' parameter invalid!")
+		
+		if params['intpl'] == '9pt': self.intpl = ls.EXTREMUM_2D9PTSQ
+		elif params['intpl'] == '5pt': self.intpl = ls.EXTREMUM_2D5PTSQ
+		else: log.prNot(log.ERR, "ShiftTool(): 'intpl' parameter invalid!")
+		
 		# Run analysis
 		self.run()
 	
@@ -1123,8 +1146,8 @@ class ShiftTool(Tool):
 				(len(allfiles), len(self.files), time.strftime("%H:%M:%S", eta), togo, spf))
 			refaps = []
 			imgshifts = ls.calcShifts(dfimg, self.saccdpos, self.saccdsize, \
-			 	self.sfccdpos, self.sfccdsize, method=ls.COMPARE_ABSDIFFSQ, \
-			 	extremum=ls.EXTREMUM_2D9PTSQ, refmode=ls.REF_BESTRMS, \
+			 	self.sfccdpos, self.sfccdsize, method=self.comp, \
+			 	extremum=self.intpl, refmode=ls.REF_BESTRMS, \
 			 	refopt=self.nref, shrange=[self.shrange, self.shrange], \
 				mask=self.mask, subfields=None, corrmaps=None, refaps=refaps)
 			allrefs.append(refaps)
