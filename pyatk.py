@@ -1190,14 +1190,14 @@ class ShiftTool(Tool):
 			if (self.plot):
 				import astooki.libplot as libplot
 				# TODO: fix this range -- make it a parameter?
-				plran = (0, N.ceil(self.saccdpos.max()/512)*512)
+				plran = [[0, N.ceil(self.saccdpos.max()/512.0)*512]]*2
 				libplot.plotShifts(self.mkuri('static-offset-plot'), self.shifts, \
 					self.saccdpos, self.saccdsize, self.sfccdpos, self.sfccdsize, \
-					plorigin=(0,0), plrange=plran, mag=7.0, allsh=False, \
+					mag=7.0, allsh=False, \
 				 	title='Static offsets, mag=7', legend=True)
 				libplot.plotShifts(self.mkuri('static-offset-plot-250'), \
 				 	self.shifts[:250], self.saccdpos, self.saccdsize, self.sfccdpos, \
-				 	self.sfccdsize, plorigin=(0,0), plrange=plran, mag=7.0, \
+				 	self.sfccdsize, mag=7.0, \
 				 	allsh=False, title='Static offsets, mag=7', legend=True)
 	
 
