@@ -1,18 +1,18 @@
 #!/usr/bin/env python2.5
 # encoding: utf-8
-"""
-@filename pyatk.py
-@author Tim van Werkhoven (tim@astro.su.se)
-@date 20090422 14:34
-@brief AsTooki: the astronomical toolkit - imagemagick for astronomers.
 
-Created by Tim van Werkhoven on 2009-04-22.
-Copyright (c) 2009 Tim van Werkhoven (tim@astro.su.se)
-
-This file is licensed under the Creative Commons Attribution-Share Alike
-license versions 3.0 or higher, see
-http://creativecommons.org/licenses/by-sa/3.0/
-"""
+##
+# @file pyatk.py
+# @brief AsTooki: the astronomical toolkit - imagemagick for astronomers.
+# @author Tim van Werkhoven (tim@astro.su.se)
+# @date 20090422 14:34
+# 
+# Created by Tim van Werkhoven on 2009-04-22.
+# Copyright (c) 2009 Tim van Werkhoven (tim@astro.su.se)
+# 
+# This file is licensed under the Creative Commons Attribution-Share Alike
+# license versions 3.0 or higher, see
+# http://creativecommons.org/licenses/by-sa/3.0/
 
 import sys, os, time
 import astooki.libfile as lf
@@ -22,19 +22,21 @@ import getopt
 import numpy as N
 import scipy as S
 
-VERSION = "0.0.2"
+VERSION = "0.0.3"
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
-DATE = "2009-04-24"
+DATE = "20090623"
 
+##
+# @brief Run-time command line help for the various tools
 help_message = {}
 help_message['preamble'] = """astooki version %s (%s) by %s.
-Usage: pyatk <TOOL> [OPTIONS] [FILES]""" % (VERSION, DATE, AUTHOR)
+Usage: pyatk.py <TOOL> [OPTIONS] [FILES]""" % (VERSION, DATE, AUTHOR)
 
 help_message['syntaxerr'] = """pyatk.py: Syntax incorrect.
 Usage: 
-   pyatk <TOOL> [OPTIONS] [FILES]
+   pyatk.py <TOOL> [OPTIONS] [FILES]
 or
-   pyatk [TOOL] --help
+   pyatk.py [TOOL] --help
 for help."""
 
 help_message['common'] = """Tools
@@ -47,7 +49,6 @@ help_message['common'] = """Tools
  saupd                       Update a subaperture mask with an offset
  shifts                      Measure image shifts in various subfields and 
                                subimages
- procshifts                  Process shifts measured with the shifts tool
  tomo                        Tomographically analyze differential image shifts
  sdimm                       SDIMM+ analysis of image shifts
 
@@ -137,11 +138,6 @@ help_message['shifts'] = """Shifts options
      --mask=MASK             mask to use when correlating (circular or
                                none)"""
 
-help_message['procshifts'] = """Procshifts options
-     --safile=FILEPATH       subaperture locations, same format as maskfile
-     --sffile=FILEPATH       subfield locations w.r.t. subaperture locations
-     --shifts=FILE           shift measurements"""
-
 help_message['tomo'] = """Tomo options
      --shifts=FILE           shift measurements
      --safile=FILE           centroid positions for each subaperture IN 
@@ -162,23 +158,30 @@ help_message['sdimm'] = """SDIMM options
  -n, --nref=INT              number of references to use [0 = all]
      --skipsa=SA1,SA2,...    list of subapertures to skip in analysis"""
 
-### Supported formats
+## @brief ANA data format
 _FORMAT_ANA = 'ana'
+## @brief FITS data format
 _FORMAT_FITS = 'fits'
+## @brief PNG image format
 _FORMAT_PNG = 'png'
+## @brief Binary NumPy data format
 _FORMAT_NPY = 'npy'
+## @brief Supported input formats
 _INFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_NPY)
+## @brief Supported output formats
 _OUTFORMATS = (_FORMAT_ANA, _FORMAT_FITS, _FORMAT_PNG, _FORMAT_NPY)
-### Tools available
-_TOOLS = ('convert', 'stats', 'shiftoverlay', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts', 'procshifts', 'tomo', 'sdimm')
-### Default types to use
+## @brief Available tools (used for checking commands)
+_TOOLS = ('convert', 'stats', 'shiftoverlay', 'samask', 'sfmask', 'saopt', 'saupd', 'shifts', 'tomo', 'sdimm')
+## @brief Default floattype to use
 _ftype = N.float64
+## @brief Default inttype to use
 _itype = N.int32
 
 ### ==========================================================================
 ### Startup functions
 ### ==========================================================================
 
+## @brief Parse command line arguments and start the right tool class
 def main(argv=None):
 	#print "Sleeping, attach debuggers now."
 	#time.sleep(10)
@@ -205,7 +208,6 @@ def main(argv=None):
 	elif (tool == 'saopt'): SubaptOptTool(files, params)
 	elif (tool == 'saupd'): SubaptUpdateTool(files, params)
 	elif (tool == 'shifts'): ShiftTool(files, params)
-	elif (tool == 'procshifts'): ProcShiftsTool(files, params)
 	elif (tool == 'tomo'): TomoTool(files, params)
 	elif (tool == 'sdimm'): SdimmTool(files, params)
 	# done
@@ -214,11 +216,8 @@ def main(argv=None):
 	return 0
 
 
+## @brief Process command-line options. See help_message for possible options.
 def parse_options():
-	"""
-	Process command-line options. See help_message for possible options.
-	"""
-	
 	argv = sys.argv
 	# First check whether argv[1] is present (could be -h, --help or a tool)
 	try:
@@ -307,10 +306,10 @@ def parse_options():
 	return (tool, params, files)
 
 
+## @brief Set default parameters for 'tool'
+# @param [in] tool The tool class to get the default parameters for
+# @return A dict holding the default parameters
 def get_defaults(tool):
-	"""
-	Set default paramets for 'tool' in a dict, and return it .
-	"""
 	default = {}
 	# Common defaults
 	default['logfile'] = 'astooki-log'
@@ -371,13 +370,8 @@ def get_defaults(tool):
 	
 	return default
 
-
+## @brief Check if the parsed parameters are valid
 def check_params(tool, params):
-	"""
-	Check whether tool 'action' exists and whether parameters 'params' are sane 
-	(files exists, options are allowed, etc.)
-	"""
-	
 	# Tool must be valid
 	# ===================================================================
 	
@@ -544,8 +538,7 @@ def check_params(tool, params):
 ### ==========================================================================
 
 class Tool(object):
-	"""
-	Generic Tool class with common functions.
+	"""Generic Tool class with common functions.
 	
 	This is the base class for all other 'tools' provided by astooki. This class 
 	provides some functions that are used by most/all other tools that subclass 
@@ -555,25 +548,40 @@ class Tool(object):
 	
 	def __init__(self, files, params):
 		# Init starttime
+		## @brief Starttime for the tool class
 		self.start = time.time()
+		## @brief List of files passed on to astooki (can be empty)
 		self.files = files
+		## @brief Number of files
 		self.nfiles = len(files)
+		## @brief Raw unparsed parameters dict
 		self.params = params
 		# Save some options common for all tools
+		## @brief Output directory for files
 		self.outdir = params['outdir']
+		## @brief Input format for any files read
 		self.informat = params['informat']
+		## @brief Flatfield file to use (if any)
 		self.flatfield = params['flatfield']
+		## @brief Number of frames summed in flatfield
 		self.flatmulti = params['flatmulti']
 		self.flatdata = None
+		## @brief Darkfield file to use (if any)
 		self.darkfield = params['darkfield']
+		## @brief Number of frames summed in darkfield
 		self.darkmulti = params['darkmulti']
 		self.darkdata = None
 		self.gaindata = None
+		## @brief Subaperture maskfile to use
 		self.maskfile = params['maskfile']
 		self.mask = None
+		## @brief Toggle normalisation of output
 		self.norm = params['norm']
+		## @brief Toggle cropping of processed files
 		self.crop = params['crop']
+		## @brief Toggle output of PDF plots of results in certain cases
 		self.plot = params['plot']
+		## @brief Output filename to use
 		self.file = params['file']
 		if (self.maskfile):
 			log.prNot(log.INFO, "Loading mask files.")
@@ -590,19 +598,19 @@ class Tool(object):
 						import shutil
 						shutil.copy2(val, uri)
 						#os.link(val, uri)
-		# Init list of output files we save
+		## @brief Dict of output files created 
 		self.ofiles = {}
 		self.ofiles['params'] = lf.saveData(self.mkuri('astooki-params'), \
 		 	params, aspickle=True)
 		
 	
 	
+	## @brief Load a file from disk and crop it if necessary
 	def load(self, filename):
 		log.prNot(log.INFO, "Loading '%s'" % (filename))
 		if not os.path.isfile(filename):
 			log.prNot(log.WARNING, "'%s' is not a regular file." % (filename))
 			return None
-		# Load data, using different methods depending on type
 		if (self.informat == _FORMAT_ANA):
 			data = self.__anaload(filename)
 		elif (self.informat == _FORMAT_FITS):
@@ -620,23 +628,28 @@ class Tool(object):
 		return data.astype(_ftype)
 	
 	
+	## @brief Load an ANA file
 	def __anaload(self, filename):
 		import pyana
 		return pyana.getdata(filename)
 	
 	
+	## @brief Load a FITS file
 	def __fitsload(self, filename):
 		import pyfits
 		return pyfits.getdata(filename)
 	
 	
+	## @brief Load a NumPy file
 	def __npyload(self, filename):
 		import numpy
 		return numpy.load(filename)
 	
 	
+	## @brief Dark- and flatfield data. 
+	#
+	#  Initialize dark and gain if necessary
 	def darkflat(self, data):
-		# Init dark-flat fields
 		if (self.flatfield or self.darkfield):
 			self.__initdarkflat()
 			tmp = (data-self.darkdata) * self.gaindata
@@ -645,8 +658,12 @@ class Tool(object):
 		return data
 	
 	
+	## @brief Initialize dark and flatfield if not already done
+	#
+	#  Initialize dark- and flatfield if self.darkdata and/or self.flatdata is
+	#  not set already. To speed up dark-/flatfielding, create self.gaindata
+	#  which is 1/(flat-dark) (with some filtering to prevent division by 0)
 	def __initdarkflat(self):
-		# Get flats and darks, if not already present
 		if (self.flatdata is None):
 			if (self.flatfield):
 				log.prNot(log.INFO, "Loading flatfield...")
@@ -676,37 +693,28 @@ class Tool(object):
 			#self.gaindata /= N.mean(self.gaindata)
 	
 	
+	## @brief Save data as FITS file to filepath
 	def fitssave(self, data, filepath, overwrite=True):
-		"""
-		Save 'data' as FITS file to 'filepath'.
-		"""
 		import pyfits
 		log.prNot(log.INFO, "Tool.fitssave(): Saving data to '%s'." % (filepath))
 		pyfits.writeto(filepath, data, clobber=overwrite)
 	
 	
+	## @brief Save data as ANA file to filepath
 	def anasave(self, data, filepath, compressed=1):
-		"""
-		Save 'data' as ANA file to 'filepath'. Can be compressed (default: yes).
-		"""
 		import pyana
 		log.prNot(log.INFO, "Tool.anasave(): Saving data to '%s'." % (filepath))
 		pyana.fzwrite(filepath, data, compressed)
 	
 	
+	## @brief Save data as NumPy file to filepath
 	def npysave(self, data, filepath):
-		"""
-		Save 'data' as npy file to 'filepath'.
-		"""
 		log.prNot(log.INFO, "Tool.npysave(): Saving data to '%s'." % (filepath))
 		N.save(data, filepath)
 	
 	
+	## @brief Save data as PNG file to filepath
 	def pngsave(self, data, filepath, scale=True):
-		"""
-		Save 'data' as PNG file to 'filepath'. Data can be scaled to full range
-		(default: yes).
-		"""
 		log.prNot(log.INFO, "Tool.pngsave(): Saving data to '%s'." % (filepath))
 		if (scale):
 			# Scale the values to 0-255
@@ -730,6 +738,7 @@ class Tool(object):
 		cairo.ImageSurface.write_to_png(surf, filepath)
 	
 	
+	## @brief Make an URI given from 'path'
 	def mkuri(self, path):
 		_path = os.path.basename(path)
 		if (_path != path):
@@ -738,11 +747,13 @@ class Tool(object):
 		return os.path.join(self.outdir, _path)
 	
 	
+	## @brief Apply a mask to data
+	#
+	#  Apply mask to data, setting all values outside the mask to the maximum
+	#  value of the pixels within the mask. If self.norm is set, also normalize 
+	#  the pixel values within each submask 
+	#  @param [in] data Data to mask
 	def maskimg(self, data):
-		"""
-		Apply a mask on an image, set all values outside the mask to the minimum 
-		value inside the mask, so it will appear black.
-		"""
 		if (self.maskfile is False):
 			return data
 		log.prNot(log.INFO, "Masking image if necessary, res: %d,%d" % \
@@ -773,7 +784,8 @@ class Tool(object):
 		data[self.mask == False] = N.max(data[self.mask])
 		return data
 	
-	
+
+	## @brief Initialize mask for maskimg()
 	def __initmask(self, res):
 		if (self.mask is None) or (res != self.maskres):
 			# We need to make a new mask here

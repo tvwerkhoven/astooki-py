@@ -20,9 +20,9 @@ Usage
 =====
 
 To get rudimentary information on how to use astooki, run
-   astooki-py --help
+   pyatk.py --help
 and all options will be displayed along with some basic information. A more 
-complete list of what astooki can do is given below:
+complete documentation is available in doc/
 
 Stats tool
 ----------
@@ -81,12 +81,7 @@ Purpose: tomographically analyze differential image shifts
 Todo
 ====
 
-- 20090514: take telescope angle into account
-- 20090519: document routines, workflow, file syntax, coordinate systems
-- 20090519: fix C code for fwdMatrix
-- 20090519: revive tomo simulation with KL modes
-- 20090519: -> why can't we resolve the higher layers?
-- 20090519: calculate r_0 of the data
+Nothing
 
 Known issues
 ============
