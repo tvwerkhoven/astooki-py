@@ -370,6 +370,7 @@ def get_defaults(tool):
 	
 	return default
 
+
 ## @brief Check if the parsed parameters are valid
 def check_params(tool, params):
 	# Tool must be valid
@@ -537,15 +538,13 @@ def check_params(tool, params):
 ### Tool classes
 ### ==========================================================================
 
+## @brief Generic Tool class with common functions.
+# 
+# This is the base class for all other 'tools' provided by astooki. This class 
+# provides some functions that are used by most/all other tools that subclass 
+# this class. Functionality includes loading and saving image data, 
+# dark/flatfidling and cropping & masking data.
 class Tool(object):
-	"""Generic Tool class with common functions.
-	
-	This is the base class for all other 'tools' provided by astooki. This class 
-	provides some functions that are used by most/all other tools that subclass 
-	this class. Functionality includes loading and saving image data, 
-	dark/flatfidling and cropping & masking data.
-	"""
-	
 	def __init__(self, files, params):
 		# Init starttime
 		## @brief Starttime for the tool class
@@ -605,7 +604,9 @@ class Tool(object):
 		
 	
 	
-	## @brief Load a file from disk and crop it if necessary
+	## @brief Load a file from disk.
+	#  Load a file from disk using self.informat as format, and crop it if 
+	#  self.crop is set.
 	def load(self, filename):
 		log.prNot(log.INFO, "Loading '%s'" % (filename))
 		if not os.path.isfile(filename):
@@ -648,7 +649,7 @@ class Tool(object):
 	
 	## @brief Dark- and flatfield data. 
 	#
-	#  Initialize dark and gain if necessary
+	#  Initialize dark and gain if necessary.
 	def darkflat(self, data):
 		if (self.flatfield or self.darkfield):
 			self.__initdarkflat()
@@ -693,27 +694,38 @@ class Tool(object):
 			#self.gaindata /= N.mean(self.gaindata)
 	
 	
-	## @brief Save data as FITS file to filepath
+	## @brief Save data as FITS file to disk
+	#  @param data Data to save
+	#  @param filepath File to save to
+	#  @param overwrite Overwrite file (explicitly needed for fitssave)
 	def fitssave(self, data, filepath, overwrite=True):
 		import pyfits
 		log.prNot(log.INFO, "Tool.fitssave(): Saving data to '%s'." % (filepath))
 		pyfits.writeto(filepath, data, clobber=overwrite)
 	
 	
-	## @brief Save data as ANA file to filepath
+	## @brief Save data as ANA file to disk
+	#  @param data Data to save
+	#  @param filepath File to save to
+	#  @param compressed Toggle compression on or off
 	def anasave(self, data, filepath, compressed=1):
 		import pyana
 		log.prNot(log.INFO, "Tool.anasave(): Saving data to '%s'." % (filepath))
 		pyana.fzwrite(filepath, data, compressed)
 	
 	
-	## @brief Save data as NumPy file to filepath
+	## @brief Save data as NumPy file to disk
+	#  @param data Data to save
+	#  @param filepath File to save to
 	def npysave(self, data, filepath):
 		log.prNot(log.INFO, "Tool.npysave(): Saving data to '%s'." % (filepath))
 		N.save(data, filepath)
 	
 	
-	## @brief Save data as PNG file to filepath
+	## @brief Save data as PNG file to disk
+	#  @param data Data to save
+	#  @param filepath File to save to
+	#  @param scale Scale values from 0 to 255 before saving
 	def pngsave(self, data, filepath, scale=True):
 		log.prNot(log.INFO, "Tool.pngsave(): Saving data to '%s'." % (filepath))
 		if (scale):
@@ -752,7 +764,7 @@ class Tool(object):
 	#  Apply mask to data, setting all values outside the mask to the maximum
 	#  value of the pixels within the mask. If self.norm is set, also normalize 
 	#  the pixel values within each submask 
-	#  @param [in] data Data to mask
+	#  @param data Data to mask
 	def maskimg(self, data):
 		if (self.maskfile is False):
 			return data
@@ -802,46 +814,48 @@ class Tool(object):
 	
 
 
+## @brief Make a subaperture mask
+# 
+# 
+# This tool calculates a set of coordinates where subapertures or subimages 
+# are located and saves these to disk. Optionally, the pattern can be plotted
+# as well. The units for the parameters are arbitrary, but should be 
+# consistent. For subimages on a CCD one would use pixels, for subapertures at
+# the lenslet, one would use meters.
+# 
+# The difference between subapertures and subimages is the plane they are 
+# located in. Subapertures are located in the aperture plane (i.e. on the 
+# lenslet) while subimages are located on the CCD. For this tool this is 
+# obviously irrelevant, but the meaning can be quite different.
+#
+# The following parameters should be defined in the Tool.params dict passed to 
+# the initializer of this class:
+# 
+# @param rad Telescope aperture radius
+# @param shape Shape of the telescope aperture (circular or square)
+# @param sasize Subapertures size
+# @param pitch Pitch of the subaperture positions
+# @param xoff x-offset of even and odd rows in units of sasize. [0,0.5] will
+# 	give a hexagonal brick-pattern grid while [0, 0] will give a square grid
+# @param scale Scale the whole grid by this factor
+# @param disp Displace the whole grid by this vector
+# @param file Base filename to save the pattern to
 class SubaptConfTool(Tool):
-	"""
-	Make a subaperture mask, given a number of geometric input parameters.
-	
-	This tool calculates a set of coordinates where subapertures or subimages 
-	are located and saves these to disk. Optionally, the pattern can be plotted
-	as well. The units for the parameters are arbitrary, but should be 
-	consistent.
-	
-	The difference between subapertures and subimages is the plane they are 
-	located in. Subapertures are located in the aperture plane (i.e. on the 
-	lenslet) while subimages are located on the CCD. For this tool this is 
-	obviously irrelevant, but the meaning can be quite different. Unfortunately, 
-	some of the nomenclature in astooki is ambigious about this.
-	
-	@param rad Telescope aperture radius
-	@param shape Shape of the telescope aperture (circular or square)
-	@param sasize Subapertures size
-	@param pitch Pitch of the subaperture positions
-	@param xoff x-offset of even and odd rows in units of sasize. Set to [0,0.5]
-		to get a brick-pattern grid, useful for hexagonal lenslet arrays.
-	@param scale Scale the grid by this factor
-	@param disp Displace the grid by this vector
-	@param file Base filename to save the pattern to
-	"""
 	def __init__(self, files, params):
 		super(SubaptConfTool, self).__init__(files, params)
-		# Subaperture pattern radius
+		## @brief Subaperture pattern radius
 		self.rad = params['rad']
-		# Subaperture size
+		## @brief Subaperture size
 		self.sasize = params['sasize']
-		# Subaperture pitch
+		## @brief Subaperture pitch
 		self.pitch = params['pitch']
-		# Aperture shape, either circular or square
+		## @brief Aperture shape, either circular or square
 		self.shape = params['shape']
-		# Odd-row offset
+		## @brief Row offset
 		self.xoff = params['xoff']
-		# Scale factor for complete pattern
+		## @brief Scale factor for complete pattern
 		self.scale = params['scale']
-		# Displacement vector for complete pattern
+		## @brief Displacement vector for complete pattern
 		self.disp = params['disp']
 		# Output file
 		if params['file']: self.file = params['file']
@@ -870,43 +884,42 @@ class SubaptConfTool(Tool):
 		
 	
 
-
+## @brief Make a subfield mask
+#
+# This is more or less the same as SubaptConfTool(), except that this tool
+# generates a subfield mask and takes slightly different parameters. The 
+# subfield mask will be a set of (pixel) coordinates relative to the origin of 
+# a subaperture that define crops of the subimages on the CCD. Since pixels in 
+# a subimage corresponds to a different field of view and view angle, a grid 
+# of masks for a subimage correspond to a grid of different fields of view. 
+# This grid can be used to calculate the subfield shifts that can consequently 
+# be used to analyze the seeing recorded in the data.
+# 
+# The grid generated is relative to the subimage, so the size of such a 
+# subimage is relevant: subfields cannot lie *outside* this subimage. Also, 
+# when later measuring the shifts for each subfield within a subimage, one 
+# will have to move the subfield around to measure the cross-correlation. 
+# Therefore one should supply a border which will take care of this and keep a 
+# guard range free at the edge of the subimage. The shift range used later 
+# should always be less or equal to the border supplied here.
+# 
+# @param sasize The subaperture size to be used
+# @param sfsize The subfield size
+# @param overlap The overlap in x and y direction. 1 for complete overlap, 0 
+#   for no overlap. [0.5, 0.5] gives about 50% overlap. Note that this might 
+#   be changed slightly because of the granularity of pixels
+# @param border The border or guard range to keep clear withins sasize
 class SubfieldConfTool(Tool):
-	"""
-	Make a subfield mask, given a number of geometric input parameters.
-	
-	This is more or less the same as SubaptConfTool(), except that this tool
-	generates a subfield mask and takes slightly different parameters. The 
-	subfield mask will be a set of (pixel) coordinates relative to the origin of 
-	a subaperture that define crops of the subimages on the CCD. Since pixel in 
-	a subimage corresponds to a different field of view and view angle, a grid 
-	of masks for a subimage correspond to a grid of different fields of view. 
-	This grid can be used to calculate the subfield shifts that can consequently 
-	be used to analyze the seeing recorded in the data.
-	
-	The grid generated is relative to the subimage, so the size of such a 
-	subimage is relevant: subfields cannot lie *outside* this subimage. Also, 
-	when later measuring the shifts for each subfield within a subimage, one 
-	will have to move the subfield around to measure the cross-correlation. 
-	Therefore one should supply a border which will take care of this and keep a 
-	guard range free at the edge of the subimage. The shift range used later 
-	should always be less or equal to the border supplied here.
-	
-	@param sasize The subaperture size to be used
-	@param sfsize The subfield size
-	@param overlap The overlap in x and y direction. 1 for complete overlap, 0 
-	  for no overlap. [0.5, 0.5] gives about 50%% overlap
-	@param border The border or guard range to keep clear withins sasize
-	"""
+
 	def __init__(self, files, params):
 		super(SubfieldConfTool, self).__init__(files, params)
-		# Subaperture size
+		## @brief Subaperture size
 		self.sasize = params['sasize']
-		# Subfield size
+		## @brief Subfield size
 		self.sfsize = params['sfsize']
-		# Overlap
+		## @brief Overlap between different subfields
 		self.overlap = params['overlap']
-		# Border 
+		## @brief Border to keep clear around the subfield pattern
 		self.border = params['border']
 		
 		if params['file']: self.file = params['file']
@@ -941,46 +954,45 @@ class SubfieldConfTool(Tool):
 		
 	
 
-
+## @brief Optimize subaperture configurations on real data.
+#
+# Although a subaperture mask made with SubaptConfTool() will be fairly 
+# accurate if it is supplied with the right parameters, it is still possible 
+# that the mask does not match the subimages exactly. To circumvent this 
+# problem, SubaptOptTool() can take the statically generated subimage mask and 
+# a flatfield image and tries to match the mask onto the flatfield.
+# 
+# The method used here is as follows. Given the mask, at each centroid grid
+# position take a vertial slice out of the flatfield that is ~30 pixels wide 
+# and twice the subimage high. This slice should cover the whole flatfielded 
+# subimage. This slice is then averaged over the width, giving a 1 pixel wide 
+# profile vertically across the subimage flatfield. The first pixel to the top 
+# and bottom from the center of the slice where the intensity is lower than X 
+# times the maximum intensity of the slice is considered to be the edge of the 
+# subimage. This will give the height of the subimage. The same routine is 
+# also done for horizontally across the subimage to get the width.
+# 
+# The drawback of this routine is that is needs the flatfield and real image 
+# to match perfectly. Fortunately, this should and ususally is that case. 
+# Furthermore, if there is a speck of dust on the flatfielded image, this can 
+# fool this tool. One should therefore always check the output, for example by 
+# plotting the grid or testing the grid by using it as a mask on real data.
+# 
+# @param maskfile The subaperture grid to optimize
+# @param saifac The intensity dropoff factor to use (X in the above info)
+# @param rad The radius of the subaperture grid pattern (used for plotting 
+# 	only)
 class SubaptOptTool(Tool):
-	"""
-	Optimize subaperture configurations on real data.
-	
-	Although a subaperture mask made with SubaptConfTool() will be fairly 
-	accurate if it is supplied with the right parameters, it is still possible 
-	that the mask does not match the subimages exactly. To circumvent this 
-	problem, SubaptOptTool() can take the statically generated subimage mask and 
-	a flatfield image and match the mask onto the flatfield.
-	
-	The method used here is as follows. Given the mask, at each centroid grid
-	position take a vertial slice out of the flatfield that is ~30 pixels wide 
-	and twice the subimage high. This slice should cover the whole flatfielded 
-	subimage. This slice is then averaged over the width, giving a 1 pixel wide 
-	profile vertically across the subimage flatfield. The first pixel to the top 
-	and bottom from the center of the slice where the intensity is lower than X 
-	times the maximum intensity of the slice is considered to be the edge of the 
-	subimage. This will give the height of the subimage. The same routine is 
-	also done for horizontally across the subimage to get the width.
-	
-	The drawback of this routine is that is needs the flatfield and real image 
-	to match perfectly. Fortunately, this should and ususally is that case. 
-	Furthermore, if there is a speck of dust on the flatfielded image, this can 
-	fool this tool. One should therefore always check the output, for example by 
-	plotting the grid or testing the grid by using it as a mask on real data.
-	
-	@param maskfile The subaperture grid to optimize
-	@param saifac The intensity dropoff factor to use (X in the above info)
-	@param rad The radius of the subaperture grid pattern (used for plotting 
-		only)
-	
-	"""
+
 	def __init__(self, files, params):
 		super(SubaptOptTool, self).__init__(files, params)
 		# Output file
 		tmp = os.path.splitext(self.maskfile)
 		if params['file']: self.file = params['file']
 		else: self.file = tmp[0]+'-optimized'+tmp[1]
+		## @brief The intensity dropoff factor to use
 		self.saifac = params['saifac']
+		## @brief Radius of the mask pattern (plotting only)
 		self.rad = params['rad']
 		
 		self.run()
@@ -1005,52 +1017,63 @@ class SubaptOptTool(Tool):
 	
 
 
+## @brief Calculate image-shifts between different subfields and subimages
+#
+# Processing the output of a (Shack-Hartmann) wavefront sensor starts with 
+# calculating the image shifts between various subimages and subfields. Given 
+# a set of subimage and subfield coordinates, this tool calculats the image 
+# shifts for those subimages/subfields.
+# 
+# The image shifts are calculated per frame. For each frame, the <nref> 
+# subimages with the highest RMS value are selected as reference subimages. 
+# Each reference subimage is compared with all subimages (also with itself). 
+# For each pair of subimages, the image shift is calculated for all subfields. 
+# In total this yields a 5-dimensional N_files * N_references * N_subimages 
+# * N_subfields * 2 matrix of data. This data is stored in FITS and NumPy 
+# binary format in 'image-shifts.<fits|npy>' as 32-bit float values. Note that 
+# these files will become rather big, a typical set of 1000 frames with 2 
+# references, 85 subimages and about 270 subfields will already result in 
+# 350 megabytes of data.
+# 
+# Calculating the image shifts is done in two steps. First a comparison map is 
+# made as function of the shift vector. This is done by comparing a reference 
+# subimage with a slightly shifted subimage. The method to compare the image 
+# with the reference can be a cross-correlation, the absolute difference 
+# squared, or the squared difference of the two images.
+#
+# Optionally, the two subimages can be masked before comparing them. This can 
+# be useful to synchronize the data processing with theory. The only mask
+# currently implemented is circular mask.
+# 
+# After the comparison map is calculated, the maximum value indicates the  
+# shift which matches the image with the reference best. To get a subpixel 
+# shift vector, the maximum is interpolated from a few pixels around the 
+# maximum value. This can be done with a 9-point or a 5-point quadratic 
+# interpolation.
+# 
+# @param shrange Shiftrange to measure in pixels (actual range will be 
+# 	from -shrange to +shrange)
+# @param safile Subimage mask on the CCD
+# @param sffile Subfield mask on the CCD
+# @param nref Number of reference subimages to use
+# @param comp Comparison method to use. Can be 'adsq' for absolute difference 
+#   squared or 'sqd' for square difference.
+# @param inpl Subpixel interpolation method to use. Can be '5pt' for 5-point
+#   quadratic interpolation or '9pt' for 9-point interpolation.
+# @param mask Mask to use when comparing images ('circular' or 'none')
 class ShiftTool(Tool):
-	"""
-	Calculate shifts between different subfields and subapertures, possibly 
-	do some post-processing.
-	
-	Processing the output of a (Shack-Hartmann) wavefront sensor starts with 
-	calculating the image shifts between various subimages and subfields. Given 
-	a set of subimage and subfield coordinates, this tool calculats the image 
-	shifts for those subimages/subfields.
-	
-	The image shifts are calculated per frame. For each frame, the <nref> 
-	subimages with the highest RMS value are selected as reference subimages. 
-	Each reference subimage is compared with all subimages (also with itself). 
-	For each pair of subimages, the image shift is calculated for all subfields. 
-	In total this yields a 5-dimensional N_files * N_references * N_subapertures 
-	* N_subfields * 2 matrix of data. This data is stored in FITS and NumPy 
-	binary format in 'image-shifts.<fits|npy>' as 32-bit float values. Note that 
-	these files will become rather big, a typical set of 1000 frames with 2 
-	references, 85 subapertures and about 270 subfields will already result in 
-	350 megabytes of data.
-	
-	Calculating the image shifts is done in two steps. First a comparison map is 
-	made as function of the shift vector. This is done by comparing a reference 
-	subimage with a slightly shifted subimage. The method to compare the image 
-	with the reference can be a cross-correlation, the absolute difference 
-	squared, or the squared difference of the two images.
-	
-	After the comparison map is calculated, the maximum value indicates the  
-	shift which matches the image with the reference best. To get a subpixel 
-	shift vector, the maximum is interpolated from a few pixels around the 
-	maximum value. This can be done with a 9-point or a 5-point quadratic 
-	interpolation.
-	
-	@param shrange Shiftrange to measure in pixels (actual shiftrange will be 
-		from -shrange to +shrange)
-	@param safile Subaperture CCD position file
-	@param sffile Subfield CCD position file
-	@param nref Number of reference subapertures to use
-	@param mask Mask to use when comparing images ('circular' or 'none')
-	"""
+
 	def __init__(self, files, params):
 		super(ShiftTool, self).__init__(files, params)
+		## @brief Shift range to use
 		self.shrange = params['shrange']
+		## @brief Subimage mask file
 		self.safile = params['safile']
+		## @brief Subfield mask file
 		self.sffile = params['sffile']
+		## @brief Number of subimages to use as reference
 		self.nref = params['nref']
+		## @brief Mask to use before measuring shifts
 		self.mask = params['mask']
 		# Load safile and sffile
 		(self.nsa, self.saccdpos, self.saccdsize) = \
@@ -1062,10 +1085,14 @@ class ShiftTool(Tool):
 		
 		# Parse image comparison and interpolation methods
 		import astooki.clibshifts as ls
+		## @brief Comparison method to use (abs diff squared, diff squared)
+		self.comp = ls.COMPARE_ABSDIFFSQ
 		if params['comp'] == 'adsq': self.comp = ls.COMPARE_ABSDIFFSQ
 		elif params['comp'] == 'sqd': self.comp = ls.COMPARE_SQDIFF
 		else: log.prNot(log.ERR, "ShiftTool(): 'comp' parameter invalid!")
 		
+		## @brief Subpixel interpolation method to use (9pt or 5pt)
+		self.intpl = ls.EXTREMUM_2D9PTSQ
 		if params['intpl'] == '9pt': self.intpl = ls.EXTREMUM_2D9PTSQ
 		elif params['intpl'] == '5pt': self.intpl = ls.EXTREMUM_2D5PTSQ
 		else: log.prNot(log.ERR, "ShiftTool(): 'intpl' parameter invalid!")
@@ -1240,44 +1267,43 @@ class ShiftTool(Tool):
 	
 
 
+## @brief Update subimage mask with an offset.
+#
+# Since we want to compare different subfields within each subimage, we need 
+# to know the reference direction of each subimage. Because of static 
+# aberrations (telescope defocus, instrument issues) we cannot assume that 
+# pixel (x,y) in subimage N corresponds to the same field of view as the same 
+# pixel in subimage M. Or the other way around: given a granule on the sun, 
+# we want to know at what pixel that granule is located in each of the 
+# subimages.
+# 
+# To get these 'static offsets', we take a large field of view in one 
+# reference subimage (almost the complete subimage) and cross-correlate that 
+# with all subimages. This will give N shift vectors for each frame, N being 
+# the number of subapertures. To get better results, it is possible to use 
+# multiple subapertures as reference, this should give the same data and gives 
+# an indication of the noise or reliability of the shift measurement. The 
+# image shifts measured for different reference subapertures will be stored 
+# alongside eachother.
+# 
+# Because there is atmospheric seeing which causes tip-tilt of the images, the 
+# image shifts will vary strongly from frame to frame. The seeing is 
+# statistical, however, which means that the average shift over all frames 
+# should be zero. To get the static offsets and identify the relative field of 
+# view of all subimages, we average the image shifts over all frames. This 
+# gives a offset vector for each subimage which indicates where the subimage 
+# is pointing at relative to the other subimages.
+# 
+# If we correct the subimage mask calculated earlier with this list of 
+# vectors, each subimage mask will be pointing at the same location on the 
+# sun. Once we have established this, we can subdivide the subimages in 
+# different subfields knowing exactly where each subfield points and thus 
+# providing a reliable method to base subsequent analysis on.
+# 
+# @param maskfile The subimage mask to be updated
+# @param offsets A list of offset vectors
 class SubaptUpdateTool(Tool):
-	"""
-	Update subaperture mask with an offset.
-	
-	Since we want to compare different subfields within each subimage, we need 
-	to know the reference direction of each subimage. Because of static 
-	aberrations (telescope defocus, instrument issues) we cannot assume that 
-	pixel (x,y) in subimage N corresponds to the same field of view as the same 
-	pixel in subimage M. Or the other way around: given a granule G on the sun, 
-	we want to know at what pixel that granule is located in each of the 
-	subimages.
-	
-	To get these 'static offsets', we take a large field of view in one 
-	reference subimage (almost the complete subimage) and cross-correlate that 
-	with all subimages. This will give N shift vectors for each frame, N being 
-	the number of subapertures. To get better results, it is possible to use 
-	multiple subapertures as reference, this should give the same data and gives 
-	an indication of the noise or reliability of the shift measurement. The 
-	image shifts measured for different reference subapertures will be stored 
-	alongside eachother.
-	
-	Because there is atmospheric seeing which causes tip-tilt of the images, the 
-	image shifts will vary strongly from frame to frame. The seeing is 
-	statistical, however, which means that the average shift over all frames 
-	should be zero. To get the static offsets and identify the relative field of 
-	view of all subimages, we average the image shifts over all frames. This 
-	gives a offset vector for each subimage which indicates where the subimage 
-	is pointing at relative to the other subimages.
-	
-	If we correct the subimage mask calculated earlier with this list of 
-	vectors, each subimage mask will be pointing at the same location on the 
-	sun. Once we have established this, we can subdivide the subimages in 
-	different subfields knowing exactly where each subfield points and thus 
-	providing a reliable method to base subsequent analysis on.
-	
-	@param maskfile The subaperture mask to be updated
-	@param offsets A list of offset vectors
-	"""
+
 	def __init__(self, files, params):
 		super(SubaptUpdateTool, self).__init__(files, params)
 		# Output file
@@ -1315,9 +1341,11 @@ class SubaptUpdateTool(Tool):
 		# Done
 	
 
-
+## @brief Calculate statistics on files
+#
+# Calculate some basic statistics on the files passed to this tool, like 
+# min, max, average, rms etc.
 class StatsTool(Tool):
-	"""Calculate statistics on files"""
 	def __init__(self, files, params):
 		super(StatsTool, self).__init__(files, params)
 		if (len(self.files) > 0):
@@ -1395,21 +1423,33 @@ class StatsTool(Tool):
 	
 
 
+## @brief Convert files to different format.
+# 
+# This tool is similar to the 'convert' program in the Imagemagick suite, 
+# except it focuses on astronomical dataformats. It can take all 
+# _INFORMATS and save to all _OUTFORMATS (both defined in pyatk.py)
+#
+# Note that PNG is limited to 2 dimensional data, while the other formats can 
+# hold up to 8-dimensional data.
+# 
+# This tool can also scale, crop and clip images before saving them again,
+# making it a good first start for making movies.
+#
+# @param file If there is only one file to process, save the output here
+# @param outformat Use this format to save the converted frames
+# @param scale Scale the dimensions of the frame by this factor
+# @param intclip Clip the intensity to this range
+# @sa Tool.crop Tool.maskfile Tool.darkfield Tool.flatfield
 class ConvertTool(Tool):
-	"""
-	Convert files to different format.
-	
-	This tool is similar to the 'convert' program in the Imagemagick suite, 
-	except it focuses on astronomical dataformats. As input, it can read ANA, 
-	FITS or Numpy files, and output all of those as well as PNG files. Note that 
-	PNG is limited to 2 dimensional data, while the other formats can hold up to 
-	8-dimensional data.
-	"""
 	def __init__(self, files, params):
 		super(ConvertTool, self).__init__(files, params)
+		## @brief Save output here, if and only if there is only one input file
 		self.file = params['file']
+		## @brief Output format to use
 		self.outformat = params['outformat']
+		## @brief Scale dimensions of the frame before saving
 		self.scale = params['scale']
+		## @brief Clip the intensity to this range before saving
 		self.intclip = params['intclip']
 		self.run()
 	
@@ -1456,10 +1496,29 @@ class ConvertTool(Tool):
 	
 
 
+## @brief Crop out certain subimages, overlay shift vectors, output PNGs
+#
+# This tool can make a visual representation of the shift vectors measured 
+# using ShiftTool. It crops out one or more subimages from the raw frames and 
+# overlays a box displaced by the shift vector calculated before. This can be 
+# useful to show the image shifts and make a movie out of it.
+#
+# In addition to the above, this tool can also scale and clip the frames. This  
+# is done the same way as in ConvertTool.
+#
+# @param scale Scale the dimensions of the (cropped) output by this factor
+# @param intclip Clip the intensity to this range
+# @param shape Determines the shape of the overlay drawn. Can be 'box' for a 
+#    box the size of the subfield used to measure the shift, or 'dot' for a 
+#    centroid dot a few pixels big.
+# @param skip Skip this many frames in the shifts file. By default the first 
+#    frame is matched to the first set of shifts in the shifts file. If the 
+#    first frame is in fact number 100 in a series though, one should skip 100 
+#    indices in the shifts file.
+# @param safile Subimage mask on the CCD
+# @param sffile Subfield mask on the CCD
+# @param shifts Image shifts measured with ShiftTool
 class ShiftOverlayTool(Tool):
-	"""
-	Crop out one subaperture, overlay shift vectors, output PNGs
-	"""
 	def __init__(self, files, params):
 		super(ShiftOverlayTool, self).__init__(files, params)
 		self.file = params['file']
@@ -1593,8 +1652,267 @@ class ShiftOverlayTool(Tool):
 	
 
 
+## @brief Perform SDIMM+ analysis on shift data.
+# 
+# - Loop over all rows of subapertures (subapertures that are at the same y 
+#   position)
+# - For each subap row choose a reference subaperture (i.e. the left-most one)
+# - Loop over all rows of subfields (subfields with the same y coordinate)
+# - For each subfield row, choose a reference subfield
+# - Loop over all other subapertures in this subap row
+# - Loop over all other subfields in this subfield row
+# - Compare all subaperture-subfield pairs as described in Scharmer & van 
+#   Werkhoven
+# - Repeat this for all columns
+# 
+# This tool outputs the raw results of the calculations to sdimmraw.<fits|npy> 
+# and is a is an N * 9 matrix where each row holds the following information:
+#    [id, s, a, C_lsa, C_tsa, refsa, sa, refsf, sf]
+#  with:
+# - id=0 for row-wise comparison and 1 for column-wise (as described 
+#    above),
+#  - s the scalar distance between the two subapertures in meters,
+#  - a the scalar angle between the two subfields in pixels (convert with the 
+#    CCD scale to get a real angle), 
+#  - C_lsa the longitudinal covariance between the two sequences of 
+#    differential image shifts (as described in the paper)
+#  - C_tsa the transversal covariance
+#  - refsa the index of the reference subaperture used here
+#  - refsf the ubdex of the reference subfield used here
+#  - sa the index of the other subaperture used
+#  - sf the index of the other subfield used
+#  
+#  Besides the raw information, this tool also outputs processed information
+#  to sdimmcol* and sdimmrow* files, where the *col* files have information on 
+#  the column-wise comparison and the *row* files on the row-wise comparison 
+#  of the data.
+# 
+# sdimm<col|row>.* is a 3 x N x M matrix with N the number of unique
+#  subaperture distances (s) and M the number of unique angles (a) for this 
+#  data. For the 85 subaperture lenslet array at the SST, N is 5 for
+#  column-wise comparison and 9 for row-wise comparison. This is the data that
+#  should be decomposde in SDIMM basis described in the paper. 
+# 	
+#  The first N x M frame holds the longitudinal covariance, the second frame
+#  holds the transversal covariance and the third frame holds the number of
+#  covariances each specific cell was averaged over (i.e. given an (s,a)
+#  coordinate, how many covariances were calculated?
+# 
+#  sdimm<col|row>-s.* hold the unique subaperture distances mentioned above, 
+#  and sdimm<col|row>-a.* hold the unique subfield angles mentioned above.
+# 
+# The following parameters are required as input for this tool:
+# @param safile centroid subaperture positions at the lenslet [meter]
+# @param sffile centroid subfield positions [pixel]
+# @param skipsa Subapertures to skip in analysis (i.e. with high noise)
+# @param nref Number of references to use (0 for max)
+class SdimmTool(Tool):
+	
+	def __init__(self, files, params):
+		super(SdimmTool, self).__init__(files, params)
+		log.prNot(log.NOTICE, "Starting SDIMM+ analysis of WFWFS data stored in '%s'." % (params['shifts']))
+		
+		# Load subaperture centroid positions
+		(self.nsa, self.sapos, self.sasize) = \
+		 	libsh.loadSaSfConf(params['safile'])
+		# Load subfield pixel positions
+		(self.nsf, self.sfccdpos, self.sfsize) = \
+			libsh.loadSaSfConf(params['sffile'])
+		## @brief Skip these subaps in the analysis
+		self.skipsa = N.array(params['skipsa'], dtype=N.int)
+		## @brief Number of references to use for analysis
+		self.nref = params['nref']
+		## @brief Load shift data here
+		self.shifts = lf.loadData(params['shifts'], asnpy=True)
+		
+		self.run()
+	
+	
+	def run(self):
+		# Calculate the SDIMM+ covariance values
+		import astooki.libsdimm as lsdimm
+		(slist, alist, covmap) = lsdimm.computeSdimmCovWeave(self.shifts, \
+		 	self.sapos, self.sfccdpos, refs=self.nref, skipsa=self.skipsa, row=True)
+		
+		# Save covariance map to disk
+		self.ofiles['sdimmrow'] = lf.saveData(self.mkuri('sdimmrow'), \
+		 	covmap, asfits=True)
+		# Save s and a values to disk
+		self.ofiles['sdimmrow-s'] = lf.saveData(self.mkuri('sdimmrow-s'), \
+			slist, asfits=True, ascsv=True)
+		self.ofiles['sdimmrow-a'] = lf.saveData(self.mkuri('sdimmrow-a'), \
+			alist, asfits=True, ascsv=True)
+		# Save meta file to disk
+		metafile = lf.saveData(self.mkuri('sdimm-meta-data'), \
+			self.ofiles, aspickle=True)
+	
+
+
+## @brief Simulate WFWFS measurements using N discrete KL phase screens
+class SimulShift(Tool):
+	def __init__(self, files, params):
+		super(TomoTool, self).__init__(files, params)
+		# need: nlayer, ncells, lheights, lstrength, lorigs, lsizes, sapos,
+		# sasize, sfpos, sfsize
+		
+		# Load subaperture centroid positions
+		(self.nsa, self.sapos, self.sasize) = \
+		 	libsh.loadSaSfConf(params['safile'])
+		# Load subfield pixel positions
+		(self.nsf, self.sfccdpos, self.sfsize) = \
+			libsh.loadSaSfConf(params['sffile'])
+		self.aptr = params['aptr']
+		
+		# Geometry (layer heights and number of cells)
+		self.nlay = params['nheights']
+		self.lh = params['layerheights']
+		self.lcells = params['layercells']
+		self.lorigs = N.zeros((N.product(self.nlay), len(self.nlay)))
+		self.lsizes = N.zeros((N.product(self.nlay), len(self.nlay)))
+		
+		# Calculate effective (subfield) FoV 
+		self.fov = (N.max(self.sfccdpos + self.sfsize, axis=0) - \
+			N.min(self.sfccdpos, axis=0)) * self.ccdres 
+		self.sffov = self.sfsize * self.ccdres
+		# Calculate subfield pointing angles, set average to 0
+		self.sfang = (self.sfccdpos + self.sfsize/2.0) * self.ccdres
+		self.sfang -= N.mean(self.sfang, axis=0)
+		
+		# Layer origin and sizes
+		telang = [0.0, 0.0]
+		self.lorigs = self.reshape(-1,1) * N.tan(telang).reshape(1,2)
+		self.lsizes = self.aptr + \
+				self.reshape(-1,1) * N.tan(0.5 * self.fov).reshape(1,1,2)
+		
+		log.prNot(log.NOTICE, "Starting seeings simulation using %d layers with each %dx%d cells." % (len(self.nlay), self.lcells[0], self.lcells[1]))
+		
+		# This is not done yet
+		log.prNot(log.ERROR, "Not implemented yet")
+		
+		self.run()
+	
+	
+	def run(self):
+		pass
+	
+	
+	def genCn2(self, maxh=25000, mode=0, n=5000):
+		"""
+		Generate a C_n^2 profile up to height 'maxh' in 'n' steps. 'mode' 
+		determines the type of C_n^2 profile to generate, currently only the H-V 
+		5/7 model is supported.
+		"""
+		# Generate height array and empty C_n^2 profile
+		height = linspace(0.0, maxh, n)
+		cn2 = zeros(len(height))
+		# Generate C_n^2 values
+		if mode == 0:
+			# Generate H-V 5/7 profile (Tyson p10)
+			W = 21.
+			A = 1.7e-14
+			height /= 1000.0
+			cn2 = 5.94e-23 * height**10 * (W/27)**2 * exp(-height) + \
+				2.7e-16 * exp(-2 * height / 3) + A * exp(-10 * height)
+			height *= 1000.
+		else:
+			raise ValueError('Unknown mode (should be 0)')
+		
+		# Return the C_n^2 profile with associated heights
+		return array([height, cn2])
+	
+	
+	def readRadialKl(self, filename, nModes=500):
+		"""
+		Read in the radial KL profiles from disk, limiting the number of modes
+		read in to 'nModes'.
+		"""
+		fd = open(filename, 'r')
+		
+		n_e = int(fd.readline()) # Number of 'raw' KL modes (unique q's)
+		n_r = int(fd.readline()) # Number of radial points per profile
+		# Estimate the number of modes present if not set
+		n_m = nModes if (nModes) else 2*n_e
+		
+		# Skip four lines
+		for i in range(4):
+			fd.next()
+		
+		# Allocate memory for the various KL quantities
+		kl_p = N.zeros(n_m, N.int)
+		kl_q = N.zeros(n_m, N.int)
+		kl_e = N.zeros(n_m, N.float)
+		# Memory for the radial coordinates
+		kl_r = N.zeros(n_r, N.float)
+		# Memory for the radial KL modes
+		kl = N.zeros((n_r, n_m), N.float)
+		
+		# Read in radial coordinates
+		for i in range(n_r):
+			kl_r[i] = N.float(fd.next())
+		
+		# Read in KL modes. File starts with mode 2 (tip), piston is not included.
+		jj = 1
+		nold = 0
+		log.prNot(\
+			log.NOTICE, "Starting reading in %d KL modes at %ld" % (n_e, fd.tell()))
+		
+		for i in xrange(n_e):
+			# Use the line listing the KL mode number as consistency check
+			n = N.int(fd.next())
+			if (n != nold+1):
+				raise IOError(-1, ("Reading in KL modes from " + filename + \
+					" failed, KL modes do not increment correctly."))
+			nold = n
+			
+			# Read some KL mode properties
+			kl_e[jj] = float(fd.next())
+			kl_p[jj] = int(fd.next())
+			kl_q[jj] = int(fd.next())
+			
+			# Read in the radial values of the KL mode
+			for r in xrange(n_r):
+				kl[r,jj] = float(fd.next())
+			
+			# Increase the number of KL modes read, stop if we have enough
+			jj += 1
+			if jj >= n_m: break
+			
+			# If kl_q is not zero, we can re-use this base-mode
+			if kl_q[jj-1] != 0:
+				kl_e[jj] = kl_e[jj-1]
+				kl_p[jj] = kl_p[jj-1]
+				kl_q[jj] = -kl_q[jj-1]
+				kl[:,jj] = kl[:,jj-1]
+				jj += 1
+				if jj >= n_m: break
+		
+		prNot(log.NOTICE, \
+			"Read %d modes and %g kilobytes" % (jj, fd.tell()/1000.))
+		fd.close()
+		
+		# Sanity checking here
+		if not (N.alltrue(isfinite(kl)) and N.alltrue(kl_e >= 0)):
+			raise ValueError("Error reading KL modes, some values are not finite")
+		
+		return {
+			'r': kl_r, 
+			'e': kl_e, 
+			'p': kl_p, 
+			'q': kl_q, 
+			'kl': kl
+		}
+	
+	
+	
+
+
+## @brief Tomographically analyze WFWFS data
+# 
+# A different analysis method compared to SDIMM+, this method assumes nothing 
+# about the astmophere and tries to invert it using a simple linear model. 
+# 
+# Currently work in progress.
 class TomoTool(Tool):
-	"""Tomographically analyze WFWFS data"""
 	def __init__(self, files, params):
 		super(TomoTool, self).__init__(files, params)
 		# Load shift data
@@ -1772,264 +2090,14 @@ class TomoTool(Tool):
 	
 
 
-class SdimmTool(Tool):
-	"""
-	Perform SDIMM+ analysis on shift data.
-	
-	- Loop over all rows of subapertures (subapertures that are at the same y 
-	  position)
-	- For each subap row choose a reference subaperture (i.e. the left-most one)
-	- Loop over all rows of subfields (subfields with the same y coordinate)
-	- For each subfield row, choose a reference subfield
-	- Loop over all other subapertures in this subap row
-	- Loop over all other subfields in this subfield row
-	- Compare all subaperture-subfield pairs as described in Scharmer & van 
-	  Werkhoven
-	- Repeat this for all columns
-	
-	This tool outputs the raw results of the calculations to sdimmraw.<fits|npy> 
-	and is a is an N * 9 matrix where each row holds the following information:
-    [id, s, a, C_lsa, C_tsa, refsa, sa, refsf, sf]
-  with:
-	- id=0 for row-wise comparison and 1 for column-wise (as described 
-    above),
-  - s the scalar distance between the two subapertures in meters,
-  - a the scalar angle between the two subfields in pixels (convert with the 
-    CCD scale to get a real angle), 
-  - C_lsa the longitudinal covariance between the two sequences of 
-    differential image shifts (as described in the paper)
-  - C_tsa the transversal covariance
-  - refsa the index of the reference subaperture used here
-  - refsf the ubdex of the reference subfield used here
-  - sa the index of the other subaperture used
-  - sf the index of the other subfield used
-  
-  Besides the raw information, this tool also outputs processed information to
-  sdimmcol* and sdimmrow* files, where the *col* files have information on the 
-  column-wise comparison and the *row* files on the row-wise comparison of the
-  data.
-	
-	sdimm<col|row>.* is a 3 x N x M matrix with N the number of unique
-  subaperture distances (s) and M the number of unique angles (a) for this 
-  data. For the 85 subaperture lenslet array at the SST, N is 5 for
-  column-wise comparison and 9 for row-wise comparison. This is the data that
-  should be decomposde in SDIMM basis described in the paper. 
- 	
-  The first N x M frame holds the longitudinal covariance, the second frame
-  holds the transversal covariance and the third frame holds the number of
-  covariances each specific cell was averaged over (i.e. given an (s,a)
-  coordinate, how many covariances were calculated?
-	
-  sdimm<col|row>-s.* hold the unique subaperture distances mentioned above, 
-  and sdimm<col|row>-a.* hold the unique subfield angles mentioned above.
-	
-	The following parameters are required as input for this tool:
-	@param safile centroid subaperture positions [meter]
-	@param sffile centroid subfield positions [pixel]
-	@param ccdres angular ccd resolution [arcsec/pix]
-	@param aptr aperture radius [meter)]
-	"""
-	def __init__(self, files, params):
-		super(SdimmTool, self).__init__(files, params)
-		log.prNot(log.NOTICE, "Starting SDIMM+ analysis of WFWFS data stored in '%s'." % (params['shifts']))
-		
-		# Load subaperture centroid positions
-		(self.nsa, self.sapos, self.sasize) = \
-		 	libsh.loadSaSfConf(params['safile'])
-		# Load subfield pixel positions
-		(self.nsf, self.sfccdpos, self.sfsize) = \
-			libsh.loadSaSfConf(params['sffile'])
-		# Skip these subaps in the analysis
-		self.skipsa = N.array(params['skipsa'], dtype=N.int)
-		self.nref = params['nref']
-		# Load shift data
-		self.shifts = lf.loadData(params['shifts'], asnpy=True)
-		
-		self.run()
-	
-	
-	def run(self):
-		# Calculate the SDIMM+ covariance values
-		import astooki.libsdimm as lsdimm
-		(slist, alist, covmap) = lsdimm.computeSdimmCovWeave(self.shifts, \
-		 	self.sapos, self.sfccdpos, refs=self.nref, skipsa=self.skipsa, row=True)
-		
-		# Save covariance map to disk
-		self.ofiles['sdimmrow'] = lf.saveData(self.mkuri('sdimmrow'), \
-		 	covmap, asfits=True)
-		# Save s and a values to disk
-		self.ofiles['sdimmrow-s'] = lf.saveData(self.mkuri('sdimmrow-s'), \
-			slist, asfits=True, ascsv=True)
-		self.ofiles['sdimmrow-a'] = lf.saveData(self.mkuri('sdimmrow-a'), \
-			alist, asfits=True, ascsv=True)
-		# Save meta file to disk
-		metafile = lf.saveData(self.mkuri('sdimm-meta-data'), \
-			self.ofiles, aspickle=True)
-	
-
-
-class SimulShift(Tool):
-	"""Simulate WFWFS measurements using N discrete KL phase screens"""
-	def __init__(self, files, params):		
-		super(TomoTool, self).__init__(files, params)
-		# need: nlayer, ncells, lheights, lstrength, lorigs, lsizes, sapos,
-		# sasize, sfpos, sfsize
-		
-		# Load subaperture centroid positions
-		(self.nsa, self.sapos, self.sasize) = \
-		 	libsh.loadSaSfConf(params['safile'])
-		# Load subfield pixel positions
-		(self.nsf, self.sfccdpos, self.sfsize) = \
-			libsh.loadSaSfConf(params['sffile'])
-		self.aptr = params['aptr']
-		
-		# Geometry (layer heights and number of cells)
-		self.nlay = params['nheights']
-		self.lh = params['layerheights']
-		self.lcells = params['layercells']
-		self.lorigs = N.zeros((N.product(self.nlay), len(self.nlay)))
-		self.lsizes = N.zeros((N.product(self.nlay), len(self.nlay)))
-		
-		# Calculate effective (subfield) FoV 
-		self.fov = (N.max(self.sfccdpos + self.sfsize, axis=0) - \
-			N.min(self.sfccdpos, axis=0)) * self.ccdres 
-		self.sffov = self.sfsize * self.ccdres
-		# Calculate subfield pointing angles, set average to 0
-		self.sfang = (self.sfccdpos + self.sfsize/2.0) * self.ccdres
-		self.sfang -= N.mean(self.sfang, axis=0)
-		
-		# Layer origin and sizes
-		telang = [0.0, 0.0]
-		self.lorigs = self.reshape(-1,1) * N.tan(telang).reshape(1,2)
-		self.lsizes = self.aptr + \
-				self.reshape(-1,1) * N.tan(0.5 * self.fov).reshape(1,1,2)
-		
-		log.prNot(log.NOTICE, "Starting seeings simulation using %d layers with each %dx%d cells." % (len(self.nlay), self.lcells[0], self.lcells[1]))
-		
-		# This is not done yet
-		log.prNot(log.ERROR, "Not implemented yet")
-		
-		self.run()
-	
-	
-	def run(self):
-		pass
-	
-	
-	def genCn2(self, maxh=25000, mode=0, n=5000):
-		"""
-		Generate a C_n^2 profile up to height 'maxh' in 'n' steps. 'mode' 
-		determines the type of C_n^2 profile to generate, currently only the H-V 
-		5/7 model is supported.
-		"""
-		# Generate height array and empty C_n^2 profile
-		height = linspace(0.0, maxh, n)
-		cn2 = zeros(len(height))
-		# Generate C_n^2 values
-		if mode == 0:
-			# Generate H-V 5/7 profile (Tyson p10)
-			W = 21.
-			A = 1.7e-14
-			height /= 1000.0
-			cn2 = 5.94e-23 * height**10 * (W/27)**2 * exp(-height) + \
-				2.7e-16 * exp(-2 * height / 3) + A * exp(-10 * height)
-			height *= 1000.
-		else:
-			raise ValueError('Unknown mode (should be 0)')
-		
-		# Return the C_n^2 profile with associated heights
-		return array([height, cn2])
-	
-	
-	def readRadialKl(self, filename, nModes=500):
-		"""
-		Read in the radial KL profiles from disk, limiting the number of modes
-		read in to 'nModes'.
-		"""
-		fd = open(filename, 'r')
-		
-		n_e = int(fd.readline()) # Number of 'raw' KL modes (unique q's)
-		n_r = int(fd.readline()) # Number of radial points per profile
-		# Estimate the number of modes present if not set
-		n_m = nModes if (nModes) else 2*n_e
-		
-		# Skip four lines
-		for i in range(4):
-			fd.next()
-		
-		# Allocate memory for the various KL quantities
-		kl_p = N.zeros(n_m, N.int)
-		kl_q = N.zeros(n_m, N.int)
-		kl_e = N.zeros(n_m, N.float)
-		# Memory for the radial coordinates
-		kl_r = N.zeros(n_r, N.float)
-		# Memory for the radial KL modes
-		kl = N.zeros((n_r, n_m), N.float)
-		
-		# Read in radial coordinates
-		for i in range(n_r):
-			kl_r[i] = N.float(fd.next())
-		
-		# Read in KL modes. File starts with mode 2 (tip), piston is not included.
-		jj = 1
-		nold = 0
-		log.prNot(\
-			log.NOTICE, "Starting reading in %d KL modes at %ld" % (n_e, fd.tell()))
-		
-		for i in xrange(n_e):
-			# Use the line listing the KL mode number as consistency check
-			n = N.int(fd.next())
-			if (n != nold+1):
-				raise IOError(-1, ("Reading in KL modes from " + filename + \
-					" failed, KL modes do not increment correctly."))
-			nold = n
-			
-			# Read some KL mode properties
-			kl_e[jj] = float(fd.next())
-			kl_p[jj] = int(fd.next())
-			kl_q[jj] = int(fd.next())
-			
-			# Read in the radial values of the KL mode
-			for r in xrange(n_r):
-				kl[r,jj] = float(fd.next())
-			
-			# Increase the number of KL modes read, stop if we have enough
-			jj += 1
-			if jj >= n_m: break
-			
-			# If kl_q is not zero, we can re-use this base-mode
-			if kl_q[jj-1] != 0:
-				kl_e[jj] = kl_e[jj-1]
-				kl_p[jj] = kl_p[jj-1]
-				kl_q[jj] = -kl_q[jj-1]
-				kl[:,jj] = kl[:,jj-1]
-				jj += 1
-				if jj >= n_m: break
-		
-		prNot(log.NOTICE, \
-			"Read %d modes and %g kilobytes" % (jj, fd.tell()/1000.))
-		fd.close()
-		
-		# Sanity checking here
-		if not (N.alltrue(isfinite(kl)) and N.alltrue(kl_e >= 0)):
-			raise ValueError("Error reading KL modes, some values are not finite")
-		
-		return {
-			'r': kl_r, 
-			'e': kl_e, 
-			'p': kl_p, 
-			'q': kl_q, 
-			'kl': kl
-		}
-	
-	
-	
-
-
 ### ==========================================================================
 ### Helper functions
 ### ==========================================================================
 
+## @brief Show usage information
+#
+# @param tool Tool to print help about
+# @param out File descriptor to print
 def print_help(tool, out=sys.stdout):
 	if (out == sys.stdout):
 		print >> out, help_message['preamble']
@@ -2044,3 +2112,282 @@ def print_help(tool, out=sys.stdout):
 
 if __name__ == "__main__":
 	sys.exit(main())
+
+
+##
+# @mainpage Astooki
+# @author Tim van Werkhoven (tim@astro.su.se)
+# @date 20090624
+#
+# @section About_sec About
+# 
+# Astooki, the Astronomical Toolkit is a Python script to process astronomical 
+# data. Currently, it focuses strongly on WFWFS data. It can be obtained at 
+# http://github.com/tvwerkhoven/astooki-py/
+#
+# @section Overview_sec Overview
+# 
+# Astooki provides the following tools to process or generate data with. The 
+# name between brackets is the command line option to be used to call this 
+# tool:
+# - ConvertTool ('convert') to convert data/frames from one format to another
+# - StatsTool ('stats') to calculate basic statistics on frames
+# - SubaptConfTool ('samask') to generate subimage/aperture masks
+# - SubfieldConfTool ('sfmask') to generate subfield masks
+# - ShiftOverlayTool ('shiftoverlay') to visualize shift data
+# - SubaptOptTool	 ('saopt') to optimize subimage/aperture masks using 
+#     flatfield frames
+# - SubaptUpdateTool ('saupd') to update subimage/aperture masks with a static 
+#     offset
+# - ShiftTool ('shifts') to calculate subimage/subfield image shifts 
+# - SdimmTool ('sdimm') to analyze the shift data using the SDIMM+ 
+#     method
+#
+# @section Issues_sec Issues
+#
+# No known issues at the moment
+# 
+# @section TODO_sec TODO
+#
+# - Add tomographic inversion analysis method
+# - Add seeing simulation routines
+# - Implement full SDIMM+ analysis method
+# - Implement automatic data-reduction script/tool/framework
+#
+# @page proc_page Data processing
+# @author Tim van Werkhoven (tim@astro.su.se)
+# @date 20090624
+#
+# @section about_sec About
+#
+# This page gives a short quick & dirty howto on processing WFWFS data using 
+# astooki. The datasets from 2009.06.10 are taken as an example, but any other 
+# can be used instead.
+#
+# @section inspect_sec Inspecting the data
+# 
+# Using the ConvertTool we convert one image \c 
+# "../summary/2009.06.10-run00/*best" to a FITS file and store it in \c 
+# "img/":
+#
+# <pre>
+# pyatk.py convert -d img -vv \
+#  --file 2009.06.10-run00-best.fits \
+#  ../summary/2009.06.10-run00/*best
+# </pre>
+# 
+# This will convert one image to a FITS file using a darkfield of 300 summed 
+# frames and a flatfield of 300 summed frames.
+# 
+# <pre>
+# pyatk.py convert -vv -d img \
+#  --ff ../2009.06.10-flats01/*001 --fm 300 \
+#  --df ../2009.06.10-darks02/*001 --dm 300 \
+#  --file 2009.06.10-run00-best-df.fits \
+#  ../summary/2009.06.10-run00/*best
+# </pre>
+# 
+# Visually inspecting these files gives the following values for the subimage 
+# size and pitch:
+# 
+# - Subimage size: 177,153
+# - Subimage pitch: 193,167
+#
+# These are necessary to create a subimage mask in the next step which will be 
+# used to all further data processing
+#
+# @section setup_sec Initial setup
+# @subsection subimg_sec Generate a subimage mask
+#
+# With SubaptConfTool we generate a subimage mask that can be used later for 
+# data processing. The following parameters are important here:
+#
+# - 'rad' is the radius of the pattern (1024 in our case with a 2k by 2k pixel
+#     CCD), 
+# - 'shape' is the shape of the global aperture, 
+# - 'sasize' the size of the subimage, 
+# - 'pitch' the pitch between two subimage,
+# - 'xoff' is the horizontal offset for *even* and *odd* rows on the 
+#     subimage pattern. Set these to 0 to get a tile pattern corresponding 
+#     to a square lensley layout, setting it to 0.5, 0 gives a brick pattern 
+#     corresponding to a hexagonal lenslet layout.
+# - 'disp' is the displacement vector used. Since the image coordinates go 
+#     from (0, 0) to (2048, 2048) we need to shift the pattern by (1024, 1024) 
+#     pixels. We add an offset vector -(7,24) to approximately correct for 
+#     alignment errors.
+# - 'scale' is a global scale factor that can be used to scale the whole 
+#     pattern.
+# - 'plot' indicates that this mask should also be plotted to file
+#  
+# <pre>
+# pyatk.py samask -vv -d simask \
+#  --file simask.csv \
+#  --rad 1024 \
+#  --shape circular \
+#  --sasize 175,154 \
+#  --pitch 194,166 \
+#  --xoff 0,0.5 \
+#  --disp 1017,1000 \
+#  --scale=1 \
+#  --plot
+# </pre>
+#
+# @subsection subimg2_sec Using a subimage mask
+#
+# Using the \c '--mf' option in ConvertTool, one can specify that a subimage 
+# mask should be used when processing the image. This will crop out everything
+# outside this mask. We use the newly generated mask to process an image to 
+# see how well it fits. Since it is a statically generated mask it probably
+# will not fit very well, this is solved in the next bit.
+# 
+# <pre>
+# pyatk.py convert -vv -d img \
+#  --ff ../2009.06.10-flats01/*001 --fm 300 \
+#  --df ../2009.06.10-darks02/*001 --dm 300 \
+#  --mf simask/simask-origin.csv \
+#  --file 2009.06.10-run00-best-df-mask.fits \
+#  ../summary/2009.06.10-run00/*best
+# </pre>
+#
+# @subsection optmask_sec Optimizing a subimage mask
+#
+# Using SubaptOptTool and a flatfield frame, we can optimize the mask to make 
+# it fit better to a flatfield image. This is done as follows:
+# 
+# <pre>
+# pyatk.py saopt -vv -d simask-fopt \
+#  --mf simask/simask-origin.csv \
+#  --ff ../2009.06.10-flats01/*001 --fm 300 \
+#  --file simask-orig-fopt.csv \
+#  --saifac 0.8 \
+#  --rad 1024 \
+#  --plot
+# </pre>
+#
+# Use the optimized mask on the data to see the improvement:
+# 
+# <pre>
+# pyatk.py convert -vv -d img \
+#  --ff ../2009.06.10-flats01/*001 --fm 300 \
+#  --df ../2009.06.10-darks02/*001 --dm 300 \
+#  --mf simask-fopt/simask-orig-fopt.csv \
+#  --file 2009.06.10-run00-best-df-mask-fopt.fits \
+#  ../summary/2009.06.10-run00/*best
+# </pre>
+# 
+#
+# @section calib_sec Calibration
+#
+# Since we want to compare different subfields within each subimage, we need 
+# to know the reference direction of each subimage. Because of static 
+# aberrations (telescope defocus, instrument issues) we cannot assume that 
+# pixel (x,y) in subimage N corresponds to the same field of view as the same 
+# pixel in subimage M. Or the other way around: given a granule on the sun, we 
+# want to know at what pixel that granule is located in each of the subimages.
+# 
+# See SubaptUpdateTool for more information.
+#
+# @subsection sfbig_sec Generate subfield mask
+# 
+# For the static offset correction of any possible telescope aberrations, we
+# want to measure image shifts of the complete subimage. To do so, we generate 
+# a subfield mask with one big subfield using SubfieldConfTool:
+#
+# <pre>
+# pyatk.py sfmask -vv -d sfmask \
+#  --file sfmask-big.csv \
+#  --sfsize=113,90 \
+#  --sasize=173,150 \
+#  --overlap=0,0 \
+#  --border=30,30 \
+#  --plot
+# </pre>
+#
+# @subsection statoff_sec Measure static offset shifts
+#
+# We now measure the image shifts for all subimages using the big subfield 
+# mask generated above using ShiftTool:
+#
+# <pre>
+# pyatk.py shifts -vv -d statoff-run00 \
+#  --ff ../2009.06.10-flats01/*001 --fm 300 \
+#  --df ../2009.06.10-darks02/*001 --dm 300 \
+#  --safile simask-fopt/simask-orig-fopt.csv \
+#  --sffile sfmask/sfmask-big.csv \
+#  --range 7 --nref 1 --mask none --plot \
+#  ../2009.06.10-run00/wfwfs_survey_im*00100
+# </pre>
+#
+# @subsection saupd_sec Update subimage mask with offsets
+#
+# We now use the previously calculated static offsets to update the subimage
+# mask. After this update, each pixel in each subimage will point to the same 
+# object on the sky. This is done with SubaptUpdateTool as follows:
+#
+# <pre>
+# pyatk.py saupd -vv \
+#  -d statoff-run00 \
+#  --mf simask-fopt/simask-orig-fopt.csv \
+#  --offset statoff-run00/static-offsets.csv \
+#  --plot
+# </pre>
+#
+# @section datared_sec Data reduction
+#
+# Now that we have a fitting subimage mask and determined the static offsets,
+# it is time to measure the actual subfield/subimage shifts for the dataset.
+#
+# @subsection subf_ssec Generate subfield mask
+#
+# To do so, we first need a subfield mask with smaller subfields. To get 
+# unified subfield masks for all datasets, give the *smallest* subimage size 
+# for all datasets calculated in the previous step as \c --sasize parameter.
+# This is not necessary, but might be desirable.
+#
+# <pre>
+# pyatk.py sfmask -vv -d sfmask \
+#  --file sfmask-16x16.csv \
+#  --sfsize=16,16 \
+#  --sasize=167,140 \
+#  --overlap=0.7,0.7 \
+#  --border=7,7
+# </pre>
+#
+# @subsection shift_ssec Measure subfield image shifts
+#
+# Using the subimage- and subfield masks, calculate the image shift for each 
+# subfield in each subimage. This data can later be inverted to produce data 
+# about the seeing. We use a circular mask to mimic a circular field of view
+# as closely as possible:
+#
+# <pre>
+# pyatk.py shifts -vv \
+#  -d subshift-16x16-run00 \
+#  --ff ../2009.06.10-flats01/*001 --fm 300 \
+#  --df ../2009.06.10-darks02/*001 --dm 300 \
+#  --safile statoff-2009.06.10-run00/simask-orig-fopt-updated.csv \
+#  --sffile sfmask/sfmask-16x16.csv \
+#  --range 7 --nref 2 --mask circular \
+#  ../2009.06.10-run00/wfwfs_survey_im*
+# </pre>
+#
+# @section sdimm_sec SDIMM+ analysis
+#
+# Using the shifts, we can invert the data to produce information about the
+# actual seeing, which is what we're after. This can be done with either a 
+# statistical SDIMM+ method, or a tomographic method. Here we describe the 
+# SDIMM+ method.
+#
+# To invert the data using the SDIMM+ method, issue:
+#
+# <pre>
+# pyatk.py sdimm -vv \
+#  -d sdimm-16x16-run00 \
+#  --skipsa -1 \
+#  --shifts subshift-16x16-2009.06.10-run00/image-shifts.npy \
+#  --safile samask/samask-ll-centroid.csv \
+#  --sffile sfmask/sfmask-16x16.csv
+# </pre>
+#
+# The dataset \c run00 for day 2009.06.10 is now reduced to a simple SDIMM+
+# covariance map and is ready in \c sdimm-16x16-run00/
