@@ -1732,7 +1732,8 @@ class SdimmTool(Tool):
 		# Calculate the SDIMM+ covariance values
 		import astooki.libsdimm as lsdimm
 		(slist, alist, covmap) = lsdimm.computeSdimmCovWeave(self.shifts, \
-		 	self.sapos, self.sfccdpos, refs=self.nref, skipsa=self.skipsa, row=True)
+		 	self.sapos, self.sfccdpos, refs=self.nref, skipsa=self.skipsa, \
+			row=True, col=True)
 		
 		# Save covariance map to disk
 		self.ofiles['sdimmrow'] = lf.saveData(self.mkuri('sdimmrow'), \
