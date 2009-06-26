@@ -1731,18 +1731,42 @@ class SdimmTool(Tool):
 	def run(self):
 		# Calculate the SDIMM+ covariance values
 		import astooki.libsdimm as lsdimm
-		(slist, alist, covmap) = lsdimm.computeSdimmCovWeave(self.shifts, \
+		(slist_r, alist_r, covmap_r) = lsdimm.computeSdimmCovWeave(self.shifts, \
 		 	self.sapos, self.sfccdpos, refs=self.nref, skipsa=self.skipsa, \
-			row=True, col=True)
-		
+			row=True, col=False)		
 		# Save covariance map to disk
 		self.ofiles['sdimmrow'] = lf.saveData(self.mkuri('sdimmrow'), \
-		 	covmap, asfits=True)
+		 	covmap_r, asfits=True)
 		# Save s and a values to disk
 		self.ofiles['sdimmrow-s'] = lf.saveData(self.mkuri('sdimmrow-s'), \
-			slist, asfits=True, ascsv=True)
+			slist_r, asfits=True, ascsv=True)
 		self.ofiles['sdimmrow-a'] = lf.saveData(self.mkuri('sdimmrow-a'), \
-			alist, asfits=True, ascsv=True)
+			alist_r, asfits=True, ascsv=True)
+		
+		(slist_c, alist_c, covmap_c) = lsdimm.computeSdimmCovWeave(self.shifts, \
+		 	self.sapos, self.sfccdpos, refs=self.nref, skipsa=self.skipsa, \
+			row=False, col=True)
+		# Save covariance map to disk
+		self.ofiles['sdimmcol'] = lf.saveData(self.mkuri('sdimmcol'), \
+		 	covmap_c, asfits=True)
+		# Save s and a values to disk
+		self.ofiles['sdimmcol-s'] = lf.saveData(self.mkuri('sdimmcol-s'), \
+			slist_c, asfits=True, ascsv=True)
+		self.ofiles['sdimmcol-a'] = lf.saveData(self.mkuri('sdimmcol-a'), \
+			alist_c, asfits=True, ascsv=True)
+		
+		(slist_a, alist_a, covmap_a) = lsdimm.mergeMaps([covmap_r, covmap_c], \
+			[slist_r, slist_c], \
+			[alist_r, alist_c])
+		# Save covariance map to disk
+		self.ofiles['sdimm'] = lf.saveData(self.mkuri('sdimm'), \
+		 	covmap_a, asfits=True)
+		# Save s and a values to disk
+		self.ofiles['sdimm-s'] = lf.saveData(self.mkuri('sdimm-s'), \
+			slist_a, asfits=True, ascsv=True)
+		self.ofiles['sdimm-a'] = lf.saveData(self.mkuri('sdimm-a'), \
+			alist_a, asfits=True, ascsv=True)
+				
 		# Save meta file to disk
 		metafile = lf.saveData(self.mkuri('sdimm-meta-data'), \
 			self.ofiles, aspickle=True)
