@@ -1189,7 +1189,7 @@ class ShiftTool(Tool):
 			 	self.sfccdpos, self.sfccdsize, method=self.comp, \
 			 	extremum=self.intpl, refmode=ls.REF_BESTRMS, \
 			 	refopt=self.nref, shrange=[self.shrange, self.shrange], \
-				mask=self.mask, subfields=None, corrmaps=None, refaps=refaps)
+				mask=self.mask, refaps=refaps)
 			allrefs.append(refaps)
 			allshifts.append(imgshifts)
 		
