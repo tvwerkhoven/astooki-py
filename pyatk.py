@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0"
+GITREVISION="v20090626.0-1-g378a605"
 VERSION = "0.0.3-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -356,7 +356,7 @@ def get_defaults(tool):
 		default['safile'] = False
 		default['sffile'] = False
 		default['nref'] = 4
-		default['comp'] = 'sqd'
+		default['comp'] = 'adsq'
 		default['intpl'] = '9pt'
 		default['mask'] = 'none'
 	elif (tool == 'sdimm'):
