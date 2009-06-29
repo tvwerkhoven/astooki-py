@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-1-g378a605"
+GITREVISION="v20090626.0-3-ge553196"
 VERSION = "0.0.3-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -184,13 +184,15 @@ _itype = N.int32
 
 ## @brief Parse command line arguments and start the right tool class
 def main(argv=None):
+	print ">> This is astooki %s by %s" % (VERSION, AUTHOR)
 	#print "Sleeping, attach debuggers now."
 	#time.sleep(10)
 	__begin = time.time()
 	# Parse command-line options from sys.argv
 	(tool, params, files) = parse_options()
-	# Sanity check on parameters
+	# Sanity check on parameters, init log file
 	check_params(tool, params)
+	log.prNot(log.NOTICE, ">> This is astooki %s by %s" % (VERSION, AUTHOR))
 	cmd = sys.argv[0]
 	for arg in sys.argv[1:]:
 		if arg in files: break
@@ -198,7 +200,7 @@ def main(argv=None):
 	log.prNot(log.NOTICE, "Command: '%s'" % (cmd))
 	log.prNot(log.NOTICE, "Parameters: '%s'" % (str(params)))
 	log.prNot(log.NOTICE, "Files prefix: '%s'" % (os.path.commonprefix(files)))
-	log.prNot(log.NOTICE, "Files: '%s'" % (str(files)))
+	#log.prNot(log.NOTICE, "Files: '%s'" % (str(files)))
 	# Perform action requested
 	log.prNot(log.NOTICE, "Tool: %s." % tool)
 	if (tool == 'convert'): ConvertTool(files,params)
