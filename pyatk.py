@@ -2406,7 +2406,28 @@ if __name__ == "__main__":
 # statistical SDIMM+ method, or a tomographic method. Here we describe the 
 # SDIMM+ method.
 #
-# To invert the data using the SDIMM+ method, issue:
+# First make a subaperture mask of the *lenslets*. This should be a mask of 
+# the lenslet coordinates which will later be used for the inversion of the 
+# SDIMM+ covariance maps.
+#
+# <pre>
+# pyatk.py samask -vv -d samask\
+#  --file samask-ll.csv \
+#  --rad 0.52 \
+#  --shape circular \
+#  --sasize 0.098,0.098 \
+#  --pitch 0.098,0.0849 \
+#  --xoff 0,0.5 \
+#  --disp 0,0 \
+#  --scale=1 --plot
+# </pre>
+#
+# Note that radius of 0.52 meter is slightly larger than the real aperture 
+# radius, this is because when generating the subaperture mask every 
+# subaperture is required to fit 100% within this radius. In the real optical 
+# setup, some subapertures are slightly cropped though.
+#
+# To invert the data using the SDIMM+ method, use:
 #
 # <pre>
 # pyatk.py sdimm -vv \
