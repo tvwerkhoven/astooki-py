@@ -6,6 +6,8 @@ astooki library (astooki-lib). Currently it provides rudimentary image
 analysis and conversion routines, as well as more complex analysis tools for
 (wide-field) wavefront sensor data.
 
+The latest version is available at http://github.com/tvwerkhoven/astooki-py/
+
 This library is distributed in the hope that it will be useful, but WITHOUT
 ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
 FOR A PARTICULAR PURPOSE.
@@ -23,68 +25,3 @@ To get rudimentary information on how to use astooki, run
    pyatk.py --help
 and all options will be displayed along with some basic information. A more 
 complete documentation is available in doc/
-
-Stats tool
-----------
-
-Purpose: calculate statistics on images
-Arguments:
-
-Convert tool
-------------
-
-Purpose: 	Convert images from one format to another.
-Arguments:	
-Notes: 		Supported input formats currently include: ana, fits, npy. Output 
-			formats include fits, npy and png
-
-Shiftoverlay tool
------------------
-
-Purpose: visualize image shifts on the raw images
-
-Samask tool
------------
-
-Purpose: make a subaperture mask, giving a file with centroid and lower-left coordinates for a mask of subapertures or subimages
-
-Sfmask tool
------------
-
-Purpose: make a subfield mask
-
-Saopt tool
-----------
-
-Purpose: Optimze a subaperture mask with a flatfield image
-
-Saupd tool
-----------
-
-Purpose: Update a subaperture mask with an offset
-
-Shifts tool
------------
-
-Purpose: measure image shifts in various subfields and subimages
-
-Procshifts tool
----------------
-
-Purpose: process shifts measured with the shifts tool
-
-Tomo tool
----------
-
-Purpose: tomographically analyze differential image shifts
-
-Todo
-====
-
-Nothing
-
-Known issues
-============
-
-None
-
