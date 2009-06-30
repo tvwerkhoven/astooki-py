@@ -22,8 +22,8 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-5-g468e4a9"
-VERSION = "0.0.3-%s" % (GITREVISION)
+GITREVISION="v20090626.0-6-g247e58c"
+VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
 
@@ -2462,7 +2462,7 @@ if __name__ == "__main__":
 # 
 # Convert the PNG's to a movie:
 # 
-# mencoder mf://*.png -mf fps=10:type=png -ovc lavc -lavcopts vcodec=mpeg4:mbd=1:vbitrate=1000 -o wfwfs_movie.avi
+#<pre> mencoder mf://*.png -mf fps=10:type=png -ovc lavc -lavcopts vcodec=mpeg4:mbd=1:vbitrate=1000 -o wfwfs_movie.avi</pre>
 #
 # @subsection movie2sec Make a movie with shift boxes
 # Crop out, overlay shifts:
