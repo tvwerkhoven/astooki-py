@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-3-ge553196"
+GITREVISION="v20090626.0-4-gf41000c"
 VERSION = "0.0.3-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -2440,3 +2440,48 @@ if __name__ == "__main__":
 #
 # The dataset \c run00 for day 2009.06.10 is now reduced to a simple SDIMM+
 # covariance map and is ready in \c sdimm-16x16-run00/
+#
+# @section miscsec Miscellaneous
+# 
+# These are some miscellaneous recipes.
+#
+# @subsection moviesec Make a movie 
+#
+# Crop out a part of the whole frame:
+# 
+# <pre>pyatk.py convert \
+#  -vv -d crop-sa31 \
+#  -o png \
+#  --ff ../2009.06.10-flats01/*001 --fm 300 \
+#  --df ../2009.06.10-darks02/*001 --dm 300 \
+#  --mf simask-fopt/simask-orig-fopt.csv \
+#  --scale 1.5 \
+#  --intclip 0.8,1.2 \
+#  --crop 652,1111,167,141 \
+#  ../*_im* </pre>
+# 
+# Convert the PNG's to a movie:
+# 
+# mencoder mf://*.png -mf fps=10:type=png -ovc lavc -lavcopts vcodec=mpeg4:mbd=1:vbitrate=1000 -o wfwfs_movie.avi
+#
+# @subsection movie2sec Make a movie with shift boxes
+# Crop out, overlay shifts:
+# 
+# <pre>pyatk.py shiftoverlay \
+#  -vv \
+#  -d crop-sa30 \
+#  -o png \
+#  --ff ../2009.06.10-flats01/*001 --fm 300 \
+#  --df ../2009.06.10-darks02/*001 --dm 300 \
+#  --safile statoff-2009.06.10-run00/simask-orig-fopt-updated.csv \
+#  --sffile sfmask/sfmask-16x16.csv \
+#  --shape box \
+#  --subap 30 \
+#  --skip 0 \
+#  --intclip 0.8,1.2 \
+#  --shifts subshift-16x16-2009.06.10-run00/image-shifts.npy \
+#  --scale 1.5 \
+#  ../*_im*</pre>
+# 
+# Convert to movie:
+# <pre>mencoder mf://*.png -mf fps=10:type=png -ovc lavc -lavcopts vcodec=mpeg4:mbd=1:vbitrate=1000 -o wfwfs_img_shift_movie.avi</pre>
