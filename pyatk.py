@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-11-gff3876e"
+GITREVISION="v20090626.0-12-g1efdabb"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1770,7 +1770,7 @@ class SdimmTool(Tool):
 		# Calculate the SDIMM+ covariance values
 		import astooki.libsdimm as lsdimm
 		# Loop over different subsets of the shift measurements
-		parts = N.floor(self.shifts.shape[0]/self.shiftsn, dtype=N.int)
+		parts = N.int(self.shifts.shape[0]/self.shiftsn)
 		for p in range(parts):
 			# Calculate the current range to process
 			r = N.array([p*self.shiftsn, (p+1)*self.shiftsn-1], dtype=N.int)
