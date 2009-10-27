@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-6-g247e58c"
+GITREVISION="v20090626.0-8-gd14d906"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -153,6 +153,10 @@ help_message['tomo'] = """Tomo options
 
 help_message['sdimm'] = """SDIMM options
      --shifts=FILE           shift measurements
+     --shifts-range=BEG,END  do not use all shift measurements, but only those 
+                               from BEG to END
+     --shifts-n=N            split up the shifts in parts of N frames, and 
+                               process each part equally
      --safile=FILE           centroid positions for each subaperture IN 
                                APERTURE SPACE (meter)
      --sffile=FILE           subfield positions on the CCD (pixels)
@@ -297,14 +301,17 @@ def parse_options():
 		if option in ["--mask"]: params['mask'] = value
 		if option in ["--comp"]: params['comp'] = value
 		if option in ["--intpl"]: params['intpl'] = value
-		# Tomo / sdimm
+		# Tomo
 		if option in ["--ccdres"]: params['ccdres'] = float(value)
 		if option in ["--aptr"]: params['aptr'] = float(value)
 		if option in ["--nheights"]: params['nheights'] = value.split(',')
 		if option in ["--layerheights"]: params['layerheights'] = value.split(',')
-		if option in ["--layercells"]: params['layercells'] = value.split(',')		
+		if option in ["--layercells"]: params['layercells'] = value.split(',')
 		# sdimm options
 		if option in ["--skipsa"]: params['skipsa'] = value.split(',')		
+		if option in ["--shifts-n"]: params['shifts-n'] = int(value)
+		if option in ["--shifts-range"]: params['shifts-range'] = value.split(',')
+		
 	
 	return (tool, params, files)
 
@@ -363,6 +370,7 @@ def get_defaults(tool):
 		default['mask'] = 'none'
 	elif (tool == 'sdimm'):
 		default['nref'] = 0
+		default['shifts-n'] = 0
 	elif (tool == 'tomo'):
 		default['ccdres'] = 0.45
 		default['aptr'] = 0.49
@@ -484,6 +492,11 @@ def check_params(tool, params):
 	if params.has_key('skipsa'):
 		params['skipsa'] = N.array(params['skipsa'], dtype=N.int)
 	
+	if params.has_key('shifts-range'):
+		try: params['shifts-range'] = N.array(params['shifts-range'], \
+		 	dtype=N.int)[[0,1]]
+		except: log.prNot(log.ERR, "shifts-range invalid, should be <int>,<int>.")
+	
 	# Requirements depending on tools (where defaults are not sufficient)
 	# ===================================================================
 	if (tool == 'saopt'):
@@ -531,9 +544,10 @@ def check_params(tool, params):
 		if (params['offsets']) and \
 			(not os.path.exists(params['offsets'])):
 			log.prNot(log.ERR, "Tool 'saupd' requires offsets file.")
-	#elif (tool == 'tomo'):
-		# tomo needs ccdres, aptr, shifts
-	
+	elif (tool == 'sdim'):
+		# cannot use shifts-range and shifts-part simultaneously
+		if (params['shifts-range']) and (params['shifts-n']):
+			log.prNot(log.ERR, "Tool 'sdimm' cannot use 'shifts-range' and 'shifts-n' simultaneously.")
 	# Done
 
 
@@ -1725,8 +1739,22 @@ class SdimmTool(Tool):
 		self.skipsa = N.array(params['skipsa'], dtype=N.int)
 		## @brief Number of references to use for analysis
 		self.nref = params['nref']
+		## @brief Number of frames to use per sdimm analysis, allows to split up 
+		#  series in smaller subsets
+		self.shiftsn = params['shifts-n']
 		## @brief Load shift data here
 		self.shifts = lf.loadData(params['shifts'], asnpy=True)
+		
+		## Normalize, if shiftsn is 0, use all measurements
+		if (self.shiftsn == 0): 
+			self.shiftsn = self.shifts.shape[0]
+		## Normalize, if shiftsn is too large, crop and warn
+		elif (self.shiftsn > self.shifts.shape[0]): 
+			log.prNot(log.WARN, "Cropping 'shifts-n', only %d shift-measurements available." % (self.shifts.shape[0]))
+			self.shiftsn = self.shifts.shape[0]
+		## If the number of measurements is not a multiple of shiftsn, warn
+		elif (self.shifts.shape[0] % self.shiftsn != 0):
+			log.prNot(log.WARN, "Suboptimal 'shifts-n', skipping %d measurements." % (self.shifts.shape[0] % self.shiftsn))
 		
 		self.run()
 	
@@ -1734,36 +1762,50 @@ class SdimmTool(Tool):
 	def run(self):
 		# Calculate the SDIMM+ covariance values
 		import astooki.libsdimm as lsdimm
-		(slist_r, alist_r, covmap_r) = lsdimm.computeSdimmCovWeave(self.shifts, \
-		 	self.sapos, self.sfccdpos, refs=self.nref, skipsa=self.skipsa, \
-			row=True, col=False)		
-		# Save covariance map to disk
-		self.ofiles['sdimmrow'] = lf.saveData(self.mkuri('sdimmrow'), \
-		 	covmap_r, asfits=True)
-		# Save s and a values to disk
+		# Loop over different subsets of the shift measurements
+		parts = N.floor(self.shifts.shape[0]/self.shiftsn)
+		for p in range(parts):
+			# Calculate the current range to process
+			r = N.r_[p*self.shiftsn, (p+1)*self.shiftsn-1]
+			# Calculate ROW-wise covariance maps
+			(slist_r, alist_r, covmap_r) = lsdimm.computeSdimmCovWeave(\
+				self.shifts[r[0],r[1]], self.sapos, self.sfccdpos, refs=self.nref, \
+				skipsa=self.skipsa, row=True, col=False)
+			
+			# # Save covariance map to disk
+			self.ofiles["sdimmrow-%d" % (p)] = lf.saveData(\
+				self.mkuri("sdimmrow-%d" % (p)), covmap_r, asfits=True)
+		
+			# Calculate COLUMN-wise covariance maps
+			(slist_c, alist_c, covmap_c) = lsdimm.computeSdimmCovWeave(\
+				self.shifts[r[0], r[1]], self.sapos, self.sfccdpos, refs=self.nref, \
+				skipsa=self.skipsa, row=False, col=True)
+			
+			# Save covariance map to disk
+			self.ofiles["sdimmcol-%d" % (p)] = lf.saveData(\
+				self.mkuri("sdimmcol-%d" % (p)), covmap_c, asfits=True)
+		
+			# Combine ROW and COLUMN covariance maps
+			(slist_a, alist_a, covmap_a) = lsdimm.mergeMaps([covmap_r, covmap_c], \
+				[slist_r, slist_c], \
+				[alist_r, alist_c])
+			
+			# Save maps to disk
+			self.ofiles["sdimm-%d" % (p)] = lf.saveData(\
+				self.mkuri("sdimm-%d" % (p)), covmap_a, asfits=True)
+		
+		# Save ROW s and a values to disk
 		self.ofiles['sdimmrow-s'] = lf.saveData(self.mkuri('sdimmrow-s'), \
 			slist_r, asfits=True, ascsv=True)
 		self.ofiles['sdimmrow-a'] = lf.saveData(self.mkuri('sdimmrow-a'), \
 			alist_r, asfits=True, ascsv=True)
 		
-		(slist_c, alist_c, covmap_c) = lsdimm.computeSdimmCovWeave(self.shifts, \
-		 	self.sapos, self.sfccdpos, refs=self.nref, skipsa=self.skipsa, \
-			row=False, col=True)
-		# Save covariance map to disk
-		self.ofiles['sdimmcol'] = lf.saveData(self.mkuri('sdimmcol'), \
-		 	covmap_c, asfits=True)
-		# Save s and a values to disk
+		# Save COLUMN s and a values to disk
 		self.ofiles['sdimmcol-s'] = lf.saveData(self.mkuri('sdimmcol-s'), \
 			slist_c, asfits=True, ascsv=True)
 		self.ofiles['sdimmcol-a'] = lf.saveData(self.mkuri('sdimmcol-a'), \
 			alist_c, asfits=True, ascsv=True)
 		
-		(slist_a, alist_a, covmap_a) = lsdimm.mergeMaps([covmap_r, covmap_c], \
-			[slist_r, slist_c], \
-			[alist_r, alist_c])
-		# Save covariance map to disk
-		self.ofiles['sdimm'] = lf.saveData(self.mkuri('sdimm'), \
-		 	covmap_a, asfits=True)
 		# Save s and a values to disk
 		self.ofiles['sdimm-s'] = lf.saveData(self.mkuri('sdimm-s'), \
 			slist_a, asfits=True, ascsv=True)
