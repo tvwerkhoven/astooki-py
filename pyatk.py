@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-8-gd14d906"
+GITREVISION="v20090626.0-9-gf1f2069"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1766,13 +1766,13 @@ class SdimmTool(Tool):
 		parts = N.floor(self.shifts.shape[0]/self.shiftsn)
 		for p in range(parts):
 			# Calculate the current range to process
-			r = N.r_[p*self.shiftsn, (p+1)*self.shiftsn-1]
+			r = N.array([p*self.shiftsn, (p+1)*self.shiftsn-1], dtype=N.int)
 			# Calculate ROW-wise covariance maps
 			(slist_r, alist_r, covmap_r) = lsdimm.computeSdimmCovWeave(\
 				self.shifts[r[0],r[1]], self.sapos, self.sfccdpos, refs=self.nref, \
 				skipsa=self.skipsa, row=True, col=False)
 			
-			# # Save covariance map to disk
+			# Save covariance map to disk
 			self.ofiles["sdimmrow-%d" % (p)] = lf.saveData(\
 				self.mkuri("sdimmrow-%d" % (p)), covmap_r, asfits=True)
 		
