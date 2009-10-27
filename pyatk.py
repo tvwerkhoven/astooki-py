@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-10-ge342c08"
+GITREVISION="v20090626.0-11-gff3876e"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1682,11 +1682,11 @@ class ShiftOverlayTool(Tool):
 #   Werkhoven
 # - Repeat this for all columns
 # 
-# This tool outputs the raw results of the calculations to sdimmraw.<fits|npy> 
+# This tool outputs the raw results of the calculations to sdimm-N.<fits|npy> 
 # and is a is an N * 9 matrix where each row holds the following information:
 #    [id, s, a, C_lsa, C_tsa, refsa, sa, refsf, sf]
 #  with:
-# - id=0 for row-wise comparison and 1 for column-wise (as described 
+#  - id=0 for row-wise comparison and 1 for column-wise (as described 
 #    above),
 #  - s the scalar distance between the two subapertures in meters,
 #  - a the scalar angle between the two subfields in pixels (convert with the 
@@ -1698,6 +1698,7 @@ class ShiftOverlayTool(Tool):
 #  - refsf the ubdex of the reference subfield used here
 #  - sa the index of the other subaperture used
 #  - sf the index of the other subfield used
+#  - N is the batch being processed, see 'shifts-n' below
 #  
 #  Besides the raw information, this tool also outputs processed information
 #  to sdimmcol* and sdimmrow* files, where the *col* files have information on 
@@ -1719,10 +1720,16 @@ class ShiftOverlayTool(Tool):
 #  and sdimm<col|row>-a.* hold the unique subfield angles mentioned above.
 # 
 # The following parameters are required as input for this tool:
+# @param shifts the file holding the shift measurements
 # @param safile centroid subaperture positions at the lenslet [meter]
 # @param sffile centroid subfield positions [pixel]
 # @param skipsa Subapertures to skip in analysis (i.e. with high noise)
 # @param nref Number of references to use (0 for max)
+#
+# The following parameters are optional:
+# @param shifts-n allows for processing subsets of the shift measurements in 
+# batches of 'shifts-n' frames, instead of processing all shift measurements 
+# in one go.
 class SdimmTool(Tool):
 	
 	def __init__(self, files, params):
@@ -1763,7 +1770,7 @@ class SdimmTool(Tool):
 		# Calculate the SDIMM+ covariance values
 		import astooki.libsdimm as lsdimm
 		# Loop over different subsets of the shift measurements
-		parts = N.floor(self.shifts.shape[0]/self.shiftsn)
+		parts = N.floor(self.shifts.shape[0]/self.shiftsn, dtype=N.int)
 		for p in range(parts):
 			# Calculate the current range to process
 			r = N.array([p*self.shiftsn, (p+1)*self.shiftsn-1], dtype=N.int)
