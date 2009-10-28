@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-12-g1efdabb"
+GITREVISION="v20090626.0-13-g85459f0"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1757,7 +1757,7 @@ class SdimmTool(Tool):
 			self.shiftsn = self.shifts.shape[0]
 		## Normalize, if shiftsn is too large, crop and warn
 		elif (self.shiftsn > self.shifts.shape[0]): 
-			log.prNot(log.WARN, "Cropping 'shifts-n', only %d shift-measurements available." % (self.shifts.shape[0]))
+			log.prNot(log.WARNING, "Cropping 'shifts-n', only %d shift-measurements available." % (self.shifts.shape[0]))
 			self.shiftsn = self.shifts.shape[0]
 		## If the number of measurements is not a multiple of shiftsn, warn
 		elif (self.shifts.shape[0] % self.shiftsn != 0):
