@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-13-g85459f0"
+GITREVISION="v20090626.0-14-g6b3a640"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1761,7 +1761,7 @@ class SdimmTool(Tool):
 			self.shiftsn = self.shifts.shape[0]
 		## If the number of measurements is not a multiple of shiftsn, warn
 		elif (self.shifts.shape[0] % self.shiftsn != 0):
-			log.prNot(log.WARN, "Suboptimal 'shifts-n', skipping %d measurements." % (self.shifts.shape[0] % self.shiftsn))
+			log.prNot(log.WARNING, "Suboptimal 'shifts-n', skipping %d measurements." % (self.shifts.shape[0] % self.shiftsn))
 		
 		self.run()
 	
