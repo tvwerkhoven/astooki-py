@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-15-g86f67b0"
+GITREVISION="v20090626.0-16-gc066ef0"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1764,7 +1764,7 @@ class SdimmTool(Tool):
 		
 		self.shiftsr = N.array(self.shiftsr)
 		
-		log.prNot(log.NOTICE, "Got %d frames, using intervals: %s" % (nframes, self.shiftsr.flatten())
+		log.prNot(log.NOTICE, "Got %d frames, using intervals: %s" % (nframes, self.shiftsr.flatten()))
 				
 		self.run()
 	
