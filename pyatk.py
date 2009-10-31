@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-14-g6b3a640"
+GITREVISION="v20090626.0-15-g86f67b0"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -370,7 +370,8 @@ def get_defaults(tool):
 		default['mask'] = 'none'
 	elif (tool == 'sdimm'):
 		default['nref'] = 0
-		default['shifts-n'] = 0
+		#default['shifts-n'] = 1
+		#default['shifts-range'] = ['0','1000']
 	elif (tool == 'tomo'):
 		default['ccdres'] = 0.45
 		default['aptr'] = 0.49
@@ -1746,23 +1747,25 @@ class SdimmTool(Tool):
 		self.skipsa = N.array(params['skipsa'], dtype=N.int)
 		## @brief Number of references to use for analysis
 		self.nref = params['nref']
-		## @brief Number of frames to use per sdimm analysis, allows to split up 
-		#  series in smaller subsets
-		self.shiftsn = params['shifts-n']
 		## @brief Load shift data here
 		self.shifts = lf.loadData(params['shifts'], asnpy=True)
 		
-		## Normalize, if shiftsn is 0, use all measurements
-		if (self.shiftsn == 0): 
-			self.shiftsn = self.shifts.shape[0]
-		## Normalize, if shiftsn is too large, crop and warn
-		elif (self.shiftsn > self.shifts.shape[0]): 
-			log.prNot(log.WARNING, "Cropping 'shifts-n', only %d shift-measurements available." % (self.shifts.shape[0]))
-			self.shiftsn = self.shifts.shape[0]
-		## If the number of measurements is not a multiple of shiftsn, warn
-		elif (self.shifts.shape[0] % self.shiftsn != 0):
-			log.prNot(log.WARNING, "Suboptimal 'shifts-n', skipping %d measurements." % (self.shifts.shape[0] % self.shiftsn))
+		## @brief Number of frames to use per sdimm analysis, allows to split up 
+		#  series in smaller subsets
+		nframes = self.shifts.shape[0]
+		self.shiftsr = []
+		if param.has_key('shifts-n'):
+			for i in range(params['shifts-n']):
+				self.shiftsr.append([i * nframes, (i+1) * nframes])
+		elif param.has_key('shifts-range'):
+			self.shiftsr = [params['shifts-range']]
+		else:
+			self.shiftsr = [[0, nframes]]
 		
+		self.shiftsr = N.array(self.shiftsr)
+		
+		log.prNot(log.NOTICE, "Got %d frames, using intervals: %s" % (nframes, self.shiftsr.flatten())
+				
 		self.run()
 	
 	
@@ -1770,10 +1773,8 @@ class SdimmTool(Tool):
 		# Calculate the SDIMM+ covariance values
 		import astooki.libsdimm as lsdimm
 		# Loop over different subsets of the shift measurements
-		parts = N.int(self.shifts.shape[0]/self.shiftsn)
-		for p in range(parts):
-			# Calculate the current range to process
-			r = N.array([p*self.shiftsn, (p+1)*self.shiftsn-1], dtype=N.int)
+		for r in self.shiftsr:
+			log.prNot(log.NOTICE, "Processing frames %d--%d now..." % (r[0], r[1]))
 			# Calculate ROW-wise covariance maps
 			(slist_r, alist_r, covmap_r) = lsdimm.computeSdimmCovWeave(\
 				self.shifts[r[0]:r[1]], self.sapos, self.sfccdpos, refs=self.nref, \
