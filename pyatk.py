@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-18-gc77dba6"
+GITREVISION="v20090626.0-19-gef3fe75"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -153,7 +153,8 @@ help_message['tomo'] = """Tomo options
 
 help_message['sdimm'] = """SDIMM options
      --shifts=FILE           shift measurements
-     --shifts-range=BEG,END  do not use all shift measurements, but only those 
+     --shifts-range=BEG1,END1,BEGN,ENDN  
+                             do not use all shift measurements, but only those 
                                from BEG to END
      --shifts-n=N            split up the shifts in parts of N frames, and 
                                process each part equally
@@ -494,9 +495,11 @@ def check_params(tool, params):
 		params['skipsa'] = N.array(params['skipsa'], dtype=N.int)
 	
 	if params.has_key('shifts-range'):
-		try: params['shifts-range'] = N.array(params['shifts-range'], \
-		 	dtype=N.int)[[0,1]]
-		except: log.prNot(log.ERR, "shifts-range invalid, should be <int>,<int>.")
+		try: 
+			params['shifts-range'] = N.array(params['shifts-range'], \
+		 		dtype=N.int)
+			tmp = params['shifts-range'].reshape(-1,2)
+		except: log.prNot(log.ERR, "shifts-range invalid, should be Nx(<int>,<int>).")
 	
 	# Requirements depending on tools (where defaults are not sufficient)
 	# ===================================================================
@@ -1758,7 +1761,7 @@ class SdimmTool(Tool):
 			for i in range(params['shifts-n']):
 				self.shiftsr.append([i * nframes, (i+1) * nframes])
 		elif params.has_key('shifts-range'):
-			self.shiftsr = [params['shifts-range']]
+			self.shiftsr = params['shifts-range'].reshape(-1,2)
 		else:
 			self.shiftsr = [[0, nframes]]
 		
