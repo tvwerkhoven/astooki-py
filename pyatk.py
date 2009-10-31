@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-17-gc42d032"
+GITREVISION="v20090626.0-18-gc77dba6"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1754,10 +1754,10 @@ class SdimmTool(Tool):
 		#  series in smaller subsets
 		nframes = self.shifts.shape[0]
 		self.shiftsr = []
-		if param.has_key('shifts-n'):
+		if params.has_key('shifts-n'):
 			for i in range(params['shifts-n']):
 				self.shiftsr.append([i * nframes, (i+1) * nframes])
-		elif param.has_key('shifts-range'):
+		elif params.has_key('shifts-range'):
 			self.shiftsr = [params['shifts-range']]
 		else:
 			self.shiftsr = [[0, nframes]]
