@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-16-gc066ef0"
+GITREVISION="v20090626.0-17-gc42d032"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1781,8 +1781,8 @@ class SdimmTool(Tool):
 				skipsa=self.skipsa, row=True, col=False)
 			
 			# Save covariance map to disk
-			self.ofiles["sdimmrow-%d" % (p)] = lf.saveData(\
-				self.mkuri("sdimmrow-%d" % (p)), covmap_r, asfits=True)
+			self.ofiles["sdimmrow-%d--%d" % (r[0], r[1])] = lf.saveData(\
+				self.mkuri("sdimmrow-%d--%d" % (r[0], r[1])), covmap_r, asfits=True)
 		
 			# Calculate COLUMN-wise covariance maps
 			(slist_c, alist_c, covmap_c) = lsdimm.computeSdimmCovWeave(\
@@ -1790,8 +1790,8 @@ class SdimmTool(Tool):
 				skipsa=self.skipsa, row=False, col=True)
 			
 			# Save covariance map to disk
-			self.ofiles["sdimmcol-%d" % (p)] = lf.saveData(\
-				self.mkuri("sdimmcol-%d" % (p)), covmap_c, asfits=True)
+			self.ofiles["sdimmcol-%d--%d" % (r[0], r[1])] = lf.saveData(\
+				self.mkuri("sdimmcol-%d--%d" % (r[0], r[1])), covmap_c, asfits=True)
 		
 			# Combine ROW and COLUMN covariance maps
 			(slist_a, alist_a, covmap_a) = lsdimm.mergeMaps([covmap_r, covmap_c], \
@@ -1799,8 +1799,8 @@ class SdimmTool(Tool):
 				[alist_r, alist_c])
 			
 			# Save maps to disk
-			self.ofiles["sdimm-%d" % (p)] = lf.saveData(\
-				self.mkuri("sdimm-%d" % (p)), covmap_a, asfits=True)
+			self.ofiles["sdimm-%d--%d" % (r[0], r[1])] = lf.saveData(\
+				self.mkuri("sdimm-%d--%d" % (r[0], r[1])), covmap_a, asfits=True)
 		
 		# Save ROW s and a values to disk
 		self.ofiles['sdimmrow-s'] = lf.saveData(self.mkuri('sdimmrow-s'), \
