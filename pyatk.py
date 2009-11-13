@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-20-g6d4a47f"
+GITREVISION="v20090626.0-21-g857147a"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1758,7 +1758,7 @@ class SdimmTool(Tool):
 		nframes = self.shifts.shape[0]
 		self.shiftsr = []
 		if params.has_key('shifts-n'):
-			for i in range(params['shifts-n']):
+			for i in range(nframes/params['shifts-n']):
 				self.shiftsr.append([i * nframes, (i+1) * nframes])
 		elif params.has_key('shifts-range'):
 			self.shiftsr = params['shifts-range'].reshape(-1,2)
