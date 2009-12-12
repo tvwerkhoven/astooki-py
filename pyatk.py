@@ -22,8 +22,8 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-28-g430ebf3"
-VERSION = "0.1.0-%s" % (GITREVISION)
+GITREVISION="v20090626.0-29-ge9379c1"
+VERSION = "0.1.0 (%s)" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
 
@@ -541,7 +541,7 @@ def check_params(tool, params):
 			log.prNot(log.ERR, "Tool 'saupd' requires offsets file.")
 	elif (tool == 'sdimm'):
 		# sdimm needs shift files
-		if (not params['shift']):
+		if (not params['shifts']):
 			log.prNot(log.ERR, "Tool 'sdimm' requires shifts file.")
 		if (not params['safile']):
 			log.prNot(log.ERR, "Tool 'sdimm' requires safile file.")
@@ -1690,8 +1690,10 @@ class ShiftOverlayTool(Tool):
 # The different rows store the following information:
 #  - row 0 stores the longitudinal 'covariance' over the *averaged* dx and dy
 #  - row 1 stores the transversal 'covariance' over the *averaged* dx and dy
-#  - row 2--(2+2*nref) store the long. 'cov'. for each separate reference 
-#  - row 2--(2+2*nref+1) store the trans. 'cov'. for each separate reference 
+#  - row 2 stores the long. error bias map
+#  - row 3 stores the trans. error bias map
+#  - row 4--(4+2*nref) store the long. 'cov'. for each separate reference 
+#  - row 4--(4+2*nref+1) store the trans. 'cov'. for each separate reference 
 #
 # The values of s and a used can be found in sdimm-s.*, sdimm-a.*.
 #  
