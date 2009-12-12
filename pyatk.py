@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-30-gda225a1"
+GITREVISION="v20090626.0-31-gcf4940a"
 VERSION = "0.1.0 (%s)" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1682,7 +1682,7 @@ class ShiftOverlayTool(Tool):
 # - Repeat this for all columns
 # 
 # This tool outputs the raw results of the calculations to sdimm.<fits|npy> 
-# which is a nfiles, (2*2*(1+nref), len(slist), len(alist)) matrix.
+# which is a nfiles, (2*(1+1+nref), len(slist), len(alist)) matrix.
 # len(slist) is the number of different values of s (distance between two 
 # subapertures), and len(alist) is the number of different values of a (the 
 # angle between two subfields).
@@ -1701,15 +1701,11 @@ class ShiftOverlayTool(Tool):
 # to sdimmcol* and sdimmrow* files, where the *col* files have information on 
 # the column-wise comparison and the *row* files on the row-wise comparison 
 # of the data.
-# 
-# sdimm<col|row>.*, sdimm<col|row>-s.*, sdimm<col|row>-a.* have the same
-# layout a the sdimm file described above, except only for row-wise or 
-# column-wise comparison.
 #
 # sdimm<col|row|>-avg.* store the covariance averaged over all frames for 
 # comparison with previous analysis method.
 #
-# multiplicity.* stores a (len(slist), len(alist)) matrix with the 
+# sdimmm<col|row|>-mult.* store (len(slist), len(alist)) matrices with the 
 # multiplicity for each (s,a)-pair.
 # 
 # The following parameters are required as input for this tool:
@@ -1736,9 +1732,7 @@ class SdimmTool(Tool):
 		self.nref = params['nref']
 		## @brief Load shift data here
 		self.shifts = lf.loadData(params['shifts'], asnpy=True)
-		## TESTING: Process only first few measurements
-		self.shifts = self.shifts[:250]
-					
+		
 		self.run()
 	
 	
@@ -1753,8 +1747,8 @@ class SdimmTool(Tool):
 		# Save covariance map & multiplicity to disk
 		self.ofiles["sdimmrow"] = lf.saveData(\
 			self.mkuri("sdimmrow"), Cxy_r, asfits=True)
-		self.ofiles["sdimmrowmult"] = lf.saveData(\
-			self.mkuri("sdimmrowmult"), mult_r, asfits=True)
+		self.ofiles["sdimmrow-mult"] = lf.saveData(\
+			self.mkuri("sdimmrow-mult"), mult_r, asfits=True)
 		self.ofiles["sdimmrow-avg"] = lf.saveData(\
 			self.mkuri("sdimmrow-avg"), Cxy_r.mean(axis=0), asfits=True)
 		
@@ -1766,8 +1760,8 @@ class SdimmTool(Tool):
 		# Save covariance map to disk
 		self.ofiles["sdimmcol"] = lf.saveData(\
 			self.mkuri("sdimmcol"), Cxy_c, asfits=True)
-		self.ofiles["sdimmcolmult"] = lf.saveData(\
-			self.mkuri("sdimmcolmult"), mult_c, asfits=True)
+		self.ofiles["sdimmcol-mult"] = lf.saveData(\
+			self.mkuri("sdimmcol-mult"), mult_c, asfits=True)
 		self.ofiles["sdimmcol-avg"] = lf.saveData(\
 			self.mkuri("sdimmcol-avg"), Cxy_c.mean(axis=0), asfits=True)
 		
