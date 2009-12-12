@@ -1731,9 +1731,7 @@ class SdimmTool(Tool):
 		self.nref = params['nref']
 		## @brief Load shift data here
 		self.shifts = lf.loadData(params['shifts'], asnpy=True)
-		
-		log.prNot(log.NOTICE, "Got %d frames" % (nframes))
-				
+						
 		self.run()
 	
 	
