@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-26-g496ef19"
+GITREVISION="v20090626.0-27-gc945b1b"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -237,7 +237,7 @@ def parse_options():
 	
 	params = get_defaults(tool)
 	
-	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "pitch=", "xoff=", "origin", "noorigin", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "mask=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "shifts-n=", "shifts-range=", "log=", "skip=", "ccdres=", "aptr=", "layerheights=", "nheights=", "layercells=", "skipsa=", "intpl=", "comp="])
+	opts, args = getopt.getopt(argv[2:], "vhsi:o:d:f:r:n:l:", ["verbose", "help", "stats", "informat=", "ff=", "fm=", "df=", "dm=", "mf=", "outformat=", "intclip=", "crop=", "file=", "dir=", "scale=", "rad=", "shape=", "pitch=", "xoff=", "origin", "noorigin", "disp=", "plot", "noplot", "norm", "nonorm", "saifac=", "range=", "sffile=", "safile=", "nref=", "mask=", "sfsize=", "sasize=", "overlap=", "border=", "offsets=", "subap=", "shifts=", "log=", "skip=", "ccdres=", "aptr=", "layerheights=", "nheights=", "layercells=", "skipsa=", "intpl=", "comp="])
 	# Remaining 'args' must be files
 	files = args
 	
@@ -305,8 +305,6 @@ def parse_options():
 		if option in ["--layercells"]: params['layercells'] = value.split(',')
 		# sdimm options
 		if option in ["--skipsa"]: params['skipsa'] = value.split(',')		
-		if option in ["--shifts-n"]: params['shifts-n'] = int(value)
-		if option in ["--shifts-range"]: params['shifts-range'] = value.split(',')
 		
 	
 	return (tool, params, files)
@@ -366,8 +364,6 @@ def get_defaults(tool):
 		default['mask'] = 'none'
 	elif (tool == 'sdimm'):
 		default['nref'] = 0
-		#default['shifts-n'] = 1
-		#default['shifts-range'] = ['0','1000']
 	elif (tool == 'tomo'):
 		default['ccdres'] = 0.45
 		default['aptr'] = 0.49
@@ -543,10 +539,6 @@ def check_params(tool, params):
 		if (params['offsets']) and \
 			(not os.path.exists(params['offsets'])):
 			log.prNot(log.ERR, "Tool 'saupd' requires offsets file.")
-	elif (tool == 'sdim'):
-		# cannot use shifts-range and shifts-part simultaneously
-		if (params['shifts-range']) and (params['shifts-n']):
-			log.prNot(log.ERR, "Tool 'sdimm' cannot use 'shifts-range' and 'shifts-n' simultaneously.")
 	# Done
 
 
@@ -1682,7 +1674,7 @@ class ShiftOverlayTool(Tool):
 # - Repeat this for all columns
 # 
 # This tool outputs the raw results of the calculations to sdimm.<fits|npy> 
-# which is a (2*2*(1+nref), nfiles, len(slist), len(alist)) matrix.
+# which is a nfiles, (2*2*(1+nref), len(slist), len(alist)) matrix.
 # len(slist) is the number of different values of s (distance between two 
 # subapertures), and len(alist) is the number of different values of a (the 
 # angle between two subfields).
@@ -1703,6 +1695,9 @@ class ShiftOverlayTool(Tool):
 # sdimm<col|row>.*, sdimm<col|row>-s.*, sdimm<col|row>-a.* have the same
 # layout a the sdimm file described above, except only for row-wise or 
 # column-wise comparison.
+#
+# sdimm<col|row|>-avg.* store the covariance averaged over all frames for 
+# comparison with previous analysis method.
 #
 # multiplicity.* stores a (len(slist), len(alist)) matrix with the 
 # multiplicity for each (s,a)-pair.
@@ -1732,7 +1727,7 @@ class SdimmTool(Tool):
 		## @brief Load shift data here
 		self.shifts = lf.loadData(params['shifts'], asnpy=True)
 		## TESTING: Process only first few measurements
-		self.shifts = self.shifts[:13]
+		self.shifts = self.shifts[:150]
 					
 		self.run()
 	
@@ -1751,7 +1746,7 @@ class SdimmTool(Tool):
 		self.ofiles["sdimmrowmult"] = lf.saveData(\
 			self.mkuri("sdimmrowmult"), mult_r, asfits=True)
 		self.ofiles["sdimmrow-avg"] = lf.saveData(\
-			self.mkuri("sdimmrow-avg"), Cxy_r.mean(axis=1), asfits=True)
+			self.mkuri("sdimmrow-avg"), Cxy_r.mean(axis=0), asfits=True)
 		
 		# Calculate COLUMN-wise covariance maps
 		# TESTING: TvW: skip column-wise cov. for the moment
@@ -1766,7 +1761,7 @@ class SdimmTool(Tool):
 		self.ofiles["sdimmcolmult"] = lf.saveData(\
 			self.mkuri("sdimmcolmult"), mult_c, asfits=True)
 		self.ofiles["sdimmcol-avg"] = lf.saveData(\
-			self.mkuri("sdimmcol-avg"), Cxy_c.mean(axis=1), asfits=True)
+			self.mkuri("sdimmcol-avg"), Cxy_c.mean(axis=0), asfits=True)
 		
 		# Combine ROW and COLUMN covariance maps
 		(slist_a, alist_a, Cxy_a, mult_a) = lsdimm.mergeMaps([Cxy_r, Cxy_c], \
@@ -1780,7 +1775,7 @@ class SdimmTool(Tool):
 		self.ofiles["sdimmmult"] = lf.saveData(\
 			self.mkuri("sdimmmult"), mult_a, asfits=True)
 		self.ofiles["sdimm-avg"] = lf.saveData(\
-			self.mkuri("sdimm-avg"), Cxy_a.mean(axis=1), asfits=True)
+			self.mkuri("sdimm-avg"), Cxy_a.mean(axis=0), asfits=True)
 		
 		# Save ROW s and a values to disk
 		self.ofiles['sdimmrow-s'] = lf.saveData(self.mkuri('sdimmrow-s'), \
