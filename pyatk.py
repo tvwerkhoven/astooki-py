@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-24-gbb0d546"
+GITREVISION="v20090626.0-25-g38cc5e4"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1750,9 +1750,11 @@ class SdimmTool(Tool):
 			self.mkuri("sdimmrowmult"), mult_r, asfits=True)
 		
 		# Calculate COLUMN-wise covariance maps
-		(slist_c, alist_c, Cxy_c, mult_c) = lsdimm.computeSdimmCovWeave(\
-			self.shifts, self.sapos, self.sfccdpos, refs=self.nref, \
-			skipsa=self.skipsa, row=False, col=True)
+		# TvW: skip column-wise cov. for the moment (testing)
+		(slist_c, alist_c, Cxy_c, mult_c) = (slist_r, alist_r, Cxy_r, mult_r)
+		# (slist_c, alist_c, Cxy_c, mult_c) = lsdimm.computeSdimmCovWeave(\
+		# 	self.shifts, self.sapos, self.sfccdpos, refs=self.nref, \
+		# 	skipsa=self.skipsa, row=False, col=True)
 		
 		# Save covariance map to disk
 		self.ofiles["sdimmcol"] = lf.saveData(\
