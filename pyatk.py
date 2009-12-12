@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-22-gd3205c2"
+GITREVISION="v20090626.0-24-gbb0d546"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -153,11 +153,6 @@ help_message['tomo'] = """Tomo options
 
 help_message['sdimm'] = """SDIMM options
      --shifts=FILE           shift measurements
-     --shifts-range=BEG1,END1,BEGN,ENDN  
-                             do not use all shift measurements, but only those 
-                               from BEG to END
-     --shifts-n=N            split up the shifts in parts of N frames, and 
-                               process each part equally
      --safile=FILE           centroid positions for each subaperture IN 
                                APERTURE SPACE (meter)
      --sffile=FILE           subfield positions on the CCD (pixels)
@@ -1686,42 +1681,31 @@ class ShiftOverlayTool(Tool):
 #   Werkhoven
 # - Repeat this for all columns
 # 
-# This tool outputs the raw results of the calculations to sdimm-N.<fits|npy> 
-# and is a is an N * 9 matrix where each row holds the following information:
-#    [id, s, a, C_lsa, C_tsa, refsa, sa, refsf, sf]
-#  with:
-#  - id=0 for row-wise comparison and 1 for column-wise (as described 
-#    above),
-#  - s the scalar distance between the two subapertures in meters,
-#  - a the scalar angle between the two subfields in pixels (convert with the 
-#    CCD scale to get a real angle), 
-#  - C_lsa the longitudinal covariance between the two sequences of 
-#    differential image shifts (as described in the paper)
-#  - C_tsa the transversal covariance
-#  - refsa the index of the reference subaperture used here
-#  - refsf the ubdex of the reference subfield used here
-#  - sa the index of the other subaperture used
-#  - sf the index of the other subfield used
-#  - N is the batch being processed, see 'shifts-n' below
+# This tool outputs the raw results of the calculations to sdimm.<fits|npy> 
+# which is a (2*2*(1+nref), nfiles, len(slist), len(alist)) matrix.
+# len(slist) is the number of different values of s (distance between two 
+# subapertures), and len(alist) is the number of different values of a (the 
+# angle between two subfields).
+#
+# The different rows store the following information:
+#  - row 0 stores the longitudinal 'covariance' over the *averaged* dx and dy
+#  - row 1 stores the transversal 'covariance' over the *averaged* dx and dy
+#  - row 2--(2+2*nref) store the long. 'cov'. for each separate reference 
+#  - row 2--(2+2*nref+1) store the trans. 'cov'. for each separate reference 
+#
+# The values of s and a used can be found in sdimm-s.*, sdimm-a.*.
 #  
-#  Besides the raw information, this tool also outputs processed information
-#  to sdimmcol* and sdimmrow* files, where the *col* files have information on 
-#  the column-wise comparison and the *row* files on the row-wise comparison 
-#  of the data.
+# Besides the raw information, this tool also outputs processed information
+# to sdimmcol* and sdimmrow* files, where the *col* files have information on 
+# the column-wise comparison and the *row* files on the row-wise comparison 
+# of the data.
 # 
-# sdimm<col|row>.* is a 3 x N x M matrix with N the number of unique
-#  subaperture distances (s) and M the number of unique angles (a) for this 
-#  data. For the 85 subaperture lenslet array at the SST, N is 5 for
-#  column-wise comparison and 9 for row-wise comparison. This is the data that
-#  should be decomposde in SDIMM basis described in the paper. 
-# 	
-#  The first N x M frame holds the longitudinal covariance, the second frame
-#  holds the transversal covariance and the third frame holds the number of
-#  covariances each specific cell was averaged over (i.e. given an (s,a)
-#  coordinate, how many covariances were calculated?
-# 
-#  sdimm<col|row>-s.* hold the unique subaperture distances mentioned above, 
-#  and sdimm<col|row>-a.* hold the unique subfield angles mentioned above.
+# sdimm<col|row>.*, sdimm<col|row>-s.*, sdimm<col|row>-a.* have the same
+# layout a the sdimm file described above, except only for row-wise or 
+# column-wise comparison.
+#
+# multiplicity.* stores a (len(slist), len(alist)) matrix with the 
+# multiplicity for each (s,a)-pair.
 # 
 # The following parameters are required as input for this tool:
 # @param shifts the file holding the shift measurements
@@ -1729,11 +1713,6 @@ class ShiftOverlayTool(Tool):
 # @param sffile centroid subfield positions [pixel]
 # @param skipsa Subapertures to skip in analysis (i.e. with high noise)
 # @param nref Number of references to use (0 for max)
-#
-# The following parameters are optional:
-# @param shifts-n allows for processing subsets of the shift measurements in 
-# batches of 'shifts-n' frames, instead of processing all shift measurements 
-# in one go.
 class SdimmTool(Tool):
 	
 	def __init__(self, files, params):
@@ -1753,22 +1732,7 @@ class SdimmTool(Tool):
 		## @brief Load shift data here
 		self.shifts = lf.loadData(params['shifts'], asnpy=True)
 		
-		## @brief Number of frames to use per sdimm analysis, allows to split up 
-		#  series in smaller subsets
-		nframes = self.shifts.shape[0]
-		self.shiftsr = []
-		if params.has_key('shifts-n'):
-			for i in range(nframes/params['shifts-n']):
-				self.shiftsr.append([i * params['shifts-n'], \
-					(i+1) * params['shifts-n']])
-		elif params.has_key('shifts-range'):
-			self.shiftsr = params['shifts-range'].reshape(-1,2)
-		else:
-			self.shiftsr = [[0, nframes]]
-		
-		self.shiftsr = N.array(self.shiftsr)
-		
-		log.prNot(log.NOTICE, "Got %d frames, using intervals: %s" % (nframes, self.shiftsr.flatten()))
+		log.prNot(log.NOTICE, "Got %d frames" % (nframes))
 				
 		self.run()
 	
@@ -1776,35 +1740,39 @@ class SdimmTool(Tool):
 	def run(self):
 		# Calculate the SDIMM+ covariance values
 		import astooki.libsdimm as lsdimm
-		# Loop over different subsets of the shift measurements
-		for r in self.shiftsr:
-			log.prNot(log.NOTICE, "Processing frames %d--%d now..." % (r[0], r[1]))
-			# Calculate ROW-wise covariance maps
-			(slist_r, alist_r, covmap_r) = lsdimm.computeSdimmCovWeave(\
-				self.shifts[r[0]:r[1]], self.sapos, self.sfccdpos, refs=self.nref, \
-				skipsa=self.skipsa, row=True, col=False)
-			
-			# Save covariance map to disk
-			self.ofiles["sdimmrow-%d--%d" % (r[0], r[1])] = lf.saveData(\
-				self.mkuri("sdimmrow-%d--%d" % (r[0], r[1])), covmap_r, asfits=True)
 		
-			# Calculate COLUMN-wise covariance maps
-			(slist_c, alist_c, covmap_c) = lsdimm.computeSdimmCovWeave(\
-				self.shifts[r[0]:r[1]], self.sapos, self.sfccdpos, refs=self.nref, \
-				skipsa=self.skipsa, row=False, col=True)
-			
-			# Save covariance map to disk
-			self.ofiles["sdimmcol-%d--%d" % (r[0], r[1])] = lf.saveData(\
-				self.mkuri("sdimmcol-%d--%d" % (r[0], r[1])), covmap_c, asfits=True)
+		(slist_r, alist_r, Cxy_r, mult_r) = lsdimm.computeSdimmCovWeave(\
+			self.shifts, self.sapos, self.sfccdpos, refs=self.nref, \
+			skipsa=self.skipsa, row=True, col=False)
 		
-			# Combine ROW and COLUMN covariance maps
-			(slist_a, alist_a, covmap_a) = lsdimm.mergeMaps([covmap_r, covmap_c], \
-				[slist_r, slist_c], \
-				[alist_r, alist_c])
-			
-			# Save maps to disk
-			self.ofiles["sdimm-%d--%d" % (r[0], r[1])] = lf.saveData(\
-				self.mkuri("sdimm-%d--%d" % (r[0], r[1])), covmap_a, asfits=True)
+		# Save covariance map & multiplicity to disk
+		self.ofiles["sdimmrow"] = lf.saveData(\
+			self.mkuri("sdimmrow"), Cxy_r, asfits=True)
+		self.ofiles["sdimmrowmult"] = lf.saveData(\
+			self.mkuri("sdimmrowmult"), mult_r, asfits=True)
+		
+		# Calculate COLUMN-wise covariance maps
+		(slist_c, alist_c, Cxy_c, mult_c) = lsdimm.computeSdimmCovWeave(\
+			self.shifts, self.sapos, self.sfccdpos, refs=self.nref, \
+			skipsa=self.skipsa, row=False, col=True)
+		
+		# Save covariance map to disk
+		self.ofiles["sdimmcol"] = lf.saveData(\
+			self.mkuri("sdimmcol"), Cxy_c, asfits=True)
+		self.ofiles["sdimmcolmult"] = lf.saveData(\
+			self.mkuri("sdimmcolmult"), mult_c, asfits=True)
+		
+		# Combine ROW and COLUMN covariance maps
+		(slist_a, alist_a, Cxy_a, mult_a) = lsdimm.mergeMaps([Cxy_r, Cxy_c], \
+			[mult_r, mult_c], \
+			[slist_r, slist_c], \
+			[alist_r, alist_c])
+				
+		# Save maps to disk
+		self.ofiles["sdimm"] = lf.saveData(\
+			self.mkuri("sdimm"), Cxy_a, asfits=True)
+		self.ofiles["sdimmmult"] = lf.saveData(\
+			self.mkuri("sdimmmult"), mult_a, asfits=True)
 		
 		# Save ROW s and a values to disk
 		self.ofiles['sdimmrow-s'] = lf.saveData(self.mkuri('sdimmrow-s'), \
