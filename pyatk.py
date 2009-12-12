@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-27-gc945b1b"
+GITREVISION="v20090626.0-28-g430ebf3"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -539,6 +539,14 @@ def check_params(tool, params):
 		if (params['offsets']) and \
 			(not os.path.exists(params['offsets'])):
 			log.prNot(log.ERR, "Tool 'saupd' requires offsets file.")
+	elif (tool == 'sdimm'):
+		# sdimm needs shift files
+		if (not params['shift']):
+			log.prNot(log.ERR, "Tool 'sdimm' requires shifts file.")
+		if (not params['safile']):
+			log.prNot(log.ERR, "Tool 'sdimm' requires safile file.")
+		if (not params['sffile']):
+			log.prNot(log.ERR, "Tool 'sdimm' requires sffile file.")
 	# Done
 
 
