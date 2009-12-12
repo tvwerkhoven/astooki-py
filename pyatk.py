@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-25-g38cc5e4"
+GITREVISION="v20090626.0-26-g496ef19"
 VERSION = "0.1.0-%s" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1731,7 +1731,9 @@ class SdimmTool(Tool):
 		self.nref = params['nref']
 		## @brief Load shift data here
 		self.shifts = lf.loadData(params['shifts'], asnpy=True)
-						
+		## TESTING: Process only first few measurements
+		self.shifts = self.shifts[:13]
+					
 		self.run()
 	
 	
@@ -1748,9 +1750,11 @@ class SdimmTool(Tool):
 			self.mkuri("sdimmrow"), Cxy_r, asfits=True)
 		self.ofiles["sdimmrowmult"] = lf.saveData(\
 			self.mkuri("sdimmrowmult"), mult_r, asfits=True)
+		self.ofiles["sdimmrow-avg"] = lf.saveData(\
+			self.mkuri("sdimmrow-avg"), Cxy_r.mean(axis=1), asfits=True)
 		
 		# Calculate COLUMN-wise covariance maps
-		# TvW: skip column-wise cov. for the moment (testing)
+		# TESTING: TvW: skip column-wise cov. for the moment
 		(slist_c, alist_c, Cxy_c, mult_c) = (slist_r, alist_r, Cxy_r, mult_r)
 		# (slist_c, alist_c, Cxy_c, mult_c) = lsdimm.computeSdimmCovWeave(\
 		# 	self.shifts, self.sapos, self.sfccdpos, refs=self.nref, \
@@ -1761,6 +1765,8 @@ class SdimmTool(Tool):
 			self.mkuri("sdimmcol"), Cxy_c, asfits=True)
 		self.ofiles["sdimmcolmult"] = lf.saveData(\
 			self.mkuri("sdimmcolmult"), mult_c, asfits=True)
+		self.ofiles["sdimmcol-avg"] = lf.saveData(\
+			self.mkuri("sdimmcol-avg"), Cxy_c.mean(axis=1), asfits=True)
 		
 		# Combine ROW and COLUMN covariance maps
 		(slist_a, alist_a, Cxy_a, mult_a) = lsdimm.mergeMaps([Cxy_r, Cxy_c], \
@@ -1773,6 +1779,8 @@ class SdimmTool(Tool):
 			self.mkuri("sdimm"), Cxy_a, asfits=True)
 		self.ofiles["sdimmmult"] = lf.saveData(\
 			self.mkuri("sdimmmult"), mult_a, asfits=True)
+		self.ofiles["sdimm-avg"] = lf.saveData(\
+			self.mkuri("sdimm-avg"), Cxy_a.mean(axis=1), asfits=True)
 		
 		# Save ROW s and a values to disk
 		self.ofiles['sdimmrow-s'] = lf.saveData(self.mkuri('sdimmrow-s'), \
