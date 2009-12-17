@@ -22,7 +22,7 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-32-ge684a63"
+GITREVISION="v20090626.0-31-gcf4940a"
 VERSION = "0.1.0 (%s)" % (GITREVISION)
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
 DATE = "20090623"
@@ -1682,7 +1682,7 @@ class ShiftOverlayTool(Tool):
 # - Repeat this for all columns
 # 
 # This tool outputs the raw results of the calculations to sdimm.<fits|npy> 
-# which is a (nfiles, 2*(1+nref)+2+4, len(slist), len(alist)) matrix.
+# which is a nfiles, (2*(1+1+nref), len(slist), len(alist)) matrix.
 # len(slist) is the number of different values of s (distance between two 
 # subapertures), and len(alist) is the number of different values of a (the 
 # angle between two subfields).
@@ -1690,14 +1690,10 @@ class ShiftOverlayTool(Tool):
 # The different rows store the following information:
 #  - row 0 stores the longitudinal 'covariance' over the *averaged* dx and dy
 #  - row 1 stores the transversal 'covariance' over the *averaged* dx and dy
-#  - row 2 stores the cross term dx_1(s,0) * dx_2(s,a), long.
-#  - row 3 stores the cross term dx_2(s,0) * dx_1(s,a), long.
-#  - row 4 stores the cross term dx_1(s,0) * dx_2(s,a), trans.
-#  - row 5 stores the cross term dx_2(s,0) * dx_1(s,a), trans.
-#  - row 6 stores the long. error bias map
-#  - row 7 stores the trans. error bias map
-#  - row 8--(4+2*nref) store the long. 'cov'. for each separate reference 
-#  - row 8--(4+2*nref+1) store the trans. 'cov'. for each separate reference 
+#  - row 2 stores the long. error bias map
+#  - row 3 stores the trans. error bias map
+#  - row 4--(4+2*nref) store the long. 'cov'. for each separate reference 
+#  - row 4--(4+2*nref+1) store the trans. 'cov'. for each separate reference 
 #
 # The values of s and a used can be found in sdimm-s.*, sdimm-a.*.
 #  
