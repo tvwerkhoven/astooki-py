@@ -22,10 +22,9 @@ import getopt
 import numpy as N
 import scipy as S
 
-GITREVISION="v20090626.0-32-ge684a63"
-VERSION = "0.1.0 (%s)" % (GITREVISION)
+VERSION = "0.3.0"
 AUTHOR = "Tim van Werkhoven (tim@astro.su.se)"
-DATE = "20090623"
+DATE = "20100105"
 
 ##
 # @brief Run-time command line help for the various tools
